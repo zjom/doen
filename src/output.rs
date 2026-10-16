@@ -1,15 +1,8 @@
 //! Output formats: the default table, `--ids`, `--porcelain` and `--json`.
 
-use chrono::NaiveDate;
-
 use crate::app::App;
-use crate::dates::display;
+use crate::dates::{display, format_iso};
 use crate::item::{Item, Kind, Status};
-
-fn iso(d: Option<NaiveDate>) -> String {
-    d.map(|d| d.format("%Y-%m-%d").to_string())
-        .unwrap_or_default()
-}
 
 pub fn porcelain_line(item: &Item) -> String {
     let m = &item.meta;
@@ -21,8 +14,8 @@ pub fn porcelain_line(item: &Item) -> String {
             .map(|s| s.as_str().to_string())
             .unwrap_or_default(),
         item.place.as_str().to_string(),
-        iso(Some(m.date)),
-        iso(m.due),
+        format_iso(m.date),
+        m.due.map(format_iso).unwrap_or_default(),
         clean(item.title()),
         m.tags.join(","),
     ]

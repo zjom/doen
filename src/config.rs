@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use chrono::Weekday;
 use clap::ValueEnum;
 
-use crate::dates::parse_weekday;
 use crate::error::{Result, general, warn};
 use crate::filter::SortField;
 use crate::frontmatter::{Value, parse_yaml};
@@ -171,9 +170,7 @@ impl Config {
         match key {
             "editor" => self.editor = Some(s()?.to_string()),
             "date_format" => self.date_format = s()?.to_string(),
-            "week_start" => {
-                self.week_start = parse_weekday(s()?).ok_or_else(|| bad(s().unwrap()))?
-            }
+            "week_start" => self.week_start = s()?.parse().map_err(|_| bad(s().unwrap()))?,
             "relative_days" => self.relative_days = s()?.parse().map_err(|_| bad(s().unwrap()))?,
             "trash_days" => self.trash_days = s()?.parse().map_err(|_| bad(s().unwrap()))?,
             "archive_closed" => {

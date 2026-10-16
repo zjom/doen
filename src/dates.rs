@@ -41,32 +41,15 @@ impl Clock {
     }
 }
 
-pub fn parse_weekday(s: &str) -> Option<Weekday> {
-    Some(match s.to_ascii_lowercase().as_str() {
-        "mon" | "monday" => Weekday::Mon,
-        "tue" | "tuesday" => Weekday::Tue,
-        "wed" | "wednesday" => Weekday::Wed,
-        "thu" | "thursday" => Weekday::Thu,
-        "fri" | "friday" => Weekday::Fri,
-        "sat" | "saturday" => Weekday::Sat,
-        "sun" | "sunday" => Weekday::Sun,
-        _ => return None,
-    })
+pub fn weekday_short(w: Weekday) -> String {
+    w.to_string().to_ascii_lowercase()
 }
 
-pub fn weekday_short(w: Weekday) -> &'static str {
-    match w {
-        Weekday::Mon => "mon",
-        Weekday::Tue => "tue",
-        Weekday::Wed => "wed",
-        Weekday::Thu => "thu",
-        Weekday::Fri => "fri",
-        Weekday::Sat => "sat",
-        Weekday::Sun => "sun",
-    }
+pub fn format_iso(d: NaiveDate) -> String {
+    d.format("%Y-%m-%d").to_string()
 }
 
-/// Parses an ISO date as stored in frontmatter.
+/// Parses an ISO date as stored in frontmatter: zero-padded, unlike `NaiveDate::from_str`.
 pub fn parse_iso(s: &str) -> Option<NaiveDate> {
     let b = s.as_bytes();
     if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
@@ -105,30 +88,44 @@ fn parse_offset(s: &str) -> Option<(bool, u32, char)> {
 }
 
 fn apply_offset(today: NaiveDate, future: bool, n: u32, unit: char) -> Option<NaiveDate> {
-    match unit {
-        'd' | 'w' => {
-            let days = n as i64 * if unit == 'w' { 7 } else { 1 };
-            let d = Duration::try_days(days)?;
-            if future {
-                today.checked_add_signed(d)
-            } else {
-                today.checked_sub_signed(d)
-            }
-        }
-        _ => {
-            let months = Months::new(n.checked_mul(if unit == 'y' { 12 } else { 1 })?);
-            if future {
-                today.checked_add_months(months)
-            } else {
-                today.checked_sub_months(months)
-            }
-        }
+    if let Some(per) = match unit {
+        'm' => Some(1),
+        'y' => Some(12),
+        _ => None,
+    } {
+        let months = Months::new(n.checked_mul(per)?);
+        return if future {
+            today.checked_add_months(months)
+        } else {
+            today.checked_sub_months(months)
+        };
+    }
+    let days = Duration::try_days(i64::from(n) * if unit == 'w' { 7 } else { 1 })?;
+    if future {
+        today.checked_add_signed(days)
+    } else {
+        today.checked_sub_signed(days)
     }
 }
 
+fn first_of_month(d: NaiveDate) -> NaiveDate {
+    d.with_day(1).expect("every month has a first day")
+}
+
 fn end_of_month(d: NaiveDate) -> NaiveDate {
-    let first = NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap();
-    first.checked_add_months(Months::new(1)).unwrap() - Duration::days(1)
+    first_of_month(d)
+        .checked_add_months(Months::new(1))
+        .unwrap()
+        - Duration::days(1)
+}
+
+/// The next day after `from`, in the direction `step`, that is on weekday `w`.
+fn next_weekday(from: NaiveDate, w: Weekday, step: i64) -> NaiveDate {
+    let mut d = from + Duration::days(step);
+    while d.weekday() != w {
+        d += Duration::days(step);
+    }
+    d
 }
 
 /// Parses a single date in any of the forms of the spec (see "Single dates").
@@ -141,20 +138,13 @@ fn parse_date_opt(s: &str, clock: &Clock) -> Option<NaiveDate> {
     let parts: Vec<&str> = s.split('-').collect();
     match parts.as_slice() {
         [y, m, d]
-            if y.len() == 4
+            if matches!(y.len(), 2 | 4)
                 && m.len() == 2
                 && d.len() == 2
                 && parts.iter().all(|p| all_digits(p)) =>
         {
-            return ymd(y.parse().ok()?, m, d);
-        }
-        [y, m, d]
-            if y.len() == 2
-                && m.len() == 2
-                && d.len() == 2
-                && parts.iter().all(|p| all_digits(p)) =>
-        {
-            return ymd(2000 + y.parse::<i32>().ok()?, m, d);
+            let century = if y.len() == 2 { 2000 } else { 0 };
+            return ymd(century + y.parse::<i32>().ok()?, m, d);
         }
         [m, d]
             if (1..=2).contains(&m.len())
@@ -182,21 +172,11 @@ fn parse_date_opt(s: &str, clock: &Clock) -> Option<NaiveDate> {
         "eoy" => return NaiveDate::from_ymd_opt(today.year(), 12, 31),
         _ => {}
     }
-    if let Some(w) = parse_weekday(&lower) {
-        let mut d = today + Duration::days(1);
-        while d.weekday() != w {
-            d += Duration::days(1);
-        }
-        return Some(d);
+    if let Ok(w) = lower.parse() {
+        return Some(next_weekday(today, w, 1));
     }
-    if let Some(w) = lower.strip_prefix("last-").and_then(parse_weekday) {
-        let mut d = today - Duration::days(1);
-        while d.weekday() != w {
-            d -= Duration::days(1);
-        }
-        return Some(d);
-    }
-    None
+    let w = lower.strip_prefix("last-")?.parse().ok()?;
+    Some(next_weekday(today, w, -1))
 }
 
 /// A filter range. `start` and `end` are inclusive; `None` means open.
@@ -282,7 +262,7 @@ fn parse_period(s: &str, clock: &Clock) -> Option<Range> {
             (start, start + Duration::days(6))
         }
         "M" | "LM" => {
-            let mut first = NaiveDate::from_ymd_opt(today.year(), today.month(), 1)?;
+            let mut first = first_of_month(today);
             if s == "LM" {
                 first = first.checked_sub_months(Months::new(1))?;
             }

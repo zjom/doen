@@ -3,12 +3,12 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use chrono::{SubsecRound, Timelike};
+use chrono::SubsecRound;
 
 use crate::app::App;
 use crate::cli::args::CreateCmd;
 use crate::commands::edit::edit_item;
-use crate::dates::parse_date;
+use crate::dates::{format_iso, parse_date};
 use crate::editor;
 use crate::error::{Result, general, usage, warn};
 use crate::frontmatter::{Doc, Value};
@@ -59,23 +59,14 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
 
     let mut tx = app.begin()?;
     let id = ids::generate(&tx.store);
-    let now = app
-        .clock
-        .now
-        .trunc_subsecs(0)
-        .with_nanosecond(0)
-        .unwrap_or(app.clock.now);
+    let now = app.clock.now.trunc_subsecs(0);
     let mut doc = Doc::empty();
     doc.set("id", Value::Str(id.clone()), true);
     doc.set("kind", Value::Str(kind.as_str().into()), false);
     doc.set("created", Value::Str(now.to_rfc3339()), false);
-    doc.set(
-        "date",
-        Value::Str(date.format("%Y-%m-%d").to_string()),
-        false,
-    );
+    doc.set("date", Value::Str(format_iso(date)), false);
     if let Some(d) = due {
-        doc.set("due", Value::Str(d.format("%Y-%m-%d").to_string()), false);
+        doc.set("due", Value::Str(format_iso(d)), false);
     }
     doc.set(
         "tags",

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use chrono::{Datelike, NaiveDate};
 
 use crate::config::xdg_config_dir;
-use crate::dates::{Clock, parse_date, weekday_short};
+use crate::dates::{Clock, format_iso, parse_date, weekday_short};
 use crate::error::{Result, general, usage};
 use crate::frontmatter::{Doc, Value};
 use crate::item::Kind;
@@ -123,8 +123,8 @@ pub fn build_body(
     let text = tmpl
         .unwrap_or("")
         .replace("{{title}}", title)
-        .replace("{{date}}", &date.format("%Y-%m-%d").to_string())
-        .replace("{{weekday}}", weekday_short(date.weekday()))
+        .replace("{{date}}", &format_iso(date))
+        .replace("{{weekday}}", &weekday_short(date.weekday()))
         .replace("{{id}}", id);
     let mut lines: Vec<&str> = text.lines().collect();
     let h1 = lines

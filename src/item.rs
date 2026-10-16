@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset, NaiveDate};
 
-use crate::dates::{parse_iso, parse_timestamp};
+use crate::dates::{format_iso, parse_iso, parse_timestamp};
 use crate::frontmatter::{Doc, Value};
 use crate::tags;
 
@@ -348,9 +348,7 @@ impl Item {
 
     pub fn set_date(&mut self, key: &str, d: Option<NaiveDate>) {
         match d {
-            Some(d) => self
-                .doc
-                .set(key, Value::Str(d.format("%Y-%m-%d").to_string()), false),
+            Some(d) => self.doc.set(key, Value::Str(format_iso(d)), false),
             None => self.doc.remove(key),
         }
         self.refreshed();
@@ -374,10 +372,7 @@ impl Item {
             _ => vec![],
         };
         entries.push(Value::Map(vec![
-            (
-                "date".into(),
-                Value::Str(date.format("%Y-%m-%d").to_string()),
-            ),
+            ("date".into(), Value::Str(format_iso(date))),
             ("status".into(), Value::Str(status.as_str().into())),
         ]));
         self.doc.set("status", Value::Seq(entries), false);
