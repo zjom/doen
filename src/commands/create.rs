@@ -4,47 +4,18 @@ use std::io::Read;
 
 use chrono::{SubsecRound, Timelike};
 
+use crate::app::App;
 use crate::cli::args::CreateCmd;
-use crate::commands::App;
-use crate::commands::edit::{edit_again, edit_item, open_editor, require_terminal};
+use crate::commands::edit::edit_item;
 use crate::dates::parse_date;
+use crate::editor;
 use crate::error::{Result, general, usage, warn};
 use crate::frontmatter::{Doc, Value};
 use crate::ids;
 use crate::item::{Item, Kind, Place};
+use crate::store::filename;
 use crate::tags;
 use crate::template::{self, build_body};
-
-/// Makes the filename slug from a title.
-pub fn slug(title: &str) -> String {
-    let ascii = deunicode::deunicode(title).to_lowercase();
-    let mut s = String::new();
-    for c in ascii.chars() {
-        if c.is_ascii_alphanumeric() {
-            s.push(c);
-        } else if !s.ends_with('-') {
-            s.push('-');
-        }
-    }
-    let s = s.trim_matches('-');
-    if s.len() <= 40 {
-        return s.to_string();
-    }
-    let cut = if s.as_bytes()[40] == b'-' {
-        40
-    } else {
-        s[..40].rfind('-').unwrap_or(40)
-    };
-    s[..cut].trim_end_matches('-').to_string()
-}
-
-pub fn filename(item: &Item) -> String {
-    let day = item.meta.created.format("%Y%m%d");
-    match slug(item.title()) {
-        s if s.is_empty() => format!("{day}-{}.md", item.id()),
-        s => format!("{day}-{}-{s}.md", item.id()),
-    }
-}
 
 pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     let title = c.title.join(" ").trim().to_string();
@@ -82,7 +53,7 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
         other => other.map(String::from),
     };
     if title.is_empty() {
-        require_terminal()?;
+        editor::require_terminal()?;
     }
 
     let mut tx = app.begin()?;
@@ -165,9 +136,9 @@ fn edit_new(app: &App, item: Item) -> Result<Item> {
         .tempfile()?;
     std::fs::write(tmp.path(), item.render())?;
     loop {
-        open_editor(app, tmp.path())?;
+        editor::open(app, tmp.path())?;
         let text = std::fs::read_to_string(tmp.path())?;
-        match crate::commands::edit::validate(&item, &text) {
+        match editor::validate(&item, &text) {
             Ok(new) if new.meta.heading.as_ref().is_none_or(|h| h.title.is_empty()) => {
                 return Err(general("the title is empty: no item created"));
             }
@@ -175,24 +146,7 @@ fn edit_new(app: &App, item: Item) -> Result<Item> {
                 new.sync_checkbox();
                 return Ok(new);
             }
-            Err(e) => edit_again(&format!("invalid frontmatter: {e}"))?,
+            Err(e) => editor::edit_again(&format!("invalid frontmatter: {e}"))?,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::slug;
-
-    #[test]
-    fn slugs() {
-        assert_eq!(slug("Call bank!"), "call-bank");
-        assert_eq!(slug("Café über straße"), "cafe-uber-strasse");
-        assert_eq!(slug("!!!"), "");
-        assert_eq!(
-            slug("a very long title that goes on and on beyond forty"),
-            "a-very-long-title-that-goes-on-and-on"
-        );
-        assert_eq!(slug(&"x".repeat(50)), "x".repeat(40));
     }
 }

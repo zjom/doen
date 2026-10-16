@@ -1,62 +1,10 @@
-//! `edit`: the editor flow and the checkbox reconciliation.
-
-use std::path::Path;
-use std::process::Command;
-
+use crate::app::App;
 use crate::cli::args::EditCmd;
 use crate::commands::status::apply_archive;
-use crate::commands::{App, ask, has_terminal};
-use crate::error::{Error, Result, general, warn};
+use crate::editor::{self, edit_again, validate};
+use crate::error::{Result, general, warn};
 use crate::ids;
 use crate::item::{Item, Kind, Status};
-
-/// Runs the editor on a file and waits for it.
-pub fn open_editor(app: &App, path: &Path) -> Result<()> {
-    let editor = app.cfg.editor_command();
-    let status = Command::new("sh")
-        .arg("-c")
-        .arg(format!("{editor} \"$@\""))
-        .arg("sh")
-        .arg(path)
-        .status()
-        .map_err(|e| general(format!("cannot start the editor '{editor}': {e}")))?;
-    if !status.success() {
-        return Err(general(format!("the editor '{editor}' failed")));
-    }
-    Ok(())
-}
-
-pub fn require_terminal() -> Result<()> {
-    if has_terminal() {
-        Ok(())
-    } else {
-        Err(general("the editor requires a terminal"))
-    }
-}
-
-/// Asks whether to open the editor again. Returns `Ok(())` to edit again.
-pub fn edit_again(problem: &str) -> Result<()> {
-    eprintln!("doen: {problem}");
-    let answer = ask("(e)dit again or (d)iscard the changes? [E/d] ")
-        .map_err(|_| Error::Declined("no terminal".into()))?;
-    if answer.trim().eq_ignore_ascii_case("d") {
-        Err(general("changes discarded"))
-    } else {
-        Ok(())
-    }
-}
-
-/// Parses the edited text and checks the read-only fields against the original item.
-pub fn validate(orig: &Item, text: &str) -> std::result::Result<Item, String> {
-    let item =
-        Item::parse(&orig.path, orig.place, text)?.ok_or("the frontmatter has no 'id' field")?;
-    for key in ["id", "kind", "created"] {
-        if item.doc.get(key) != orig.doc.get(key) {
-            return Err(format!("the field '{key}' is read-only"));
-        }
-    }
-    Ok(item)
-}
 
 pub fn run(app: &App, c: EditCmd) -> Result<()> {
     let store = app.store()?;
@@ -67,7 +15,7 @@ pub fn run(app: &App, c: EditCmd) -> Result<()> {
 
 /// Edits the item with the ID `id`. The lock is held only while doen saves the file.
 pub fn edit_item(app: &App, id: &str, quiet: bool) -> Result<()> {
-    require_terminal()?;
+    editor::require_terminal()?;
     let store = app.store()?;
     let n = ids::resolve(&store, id, false)?;
     let mut orig_item = store.items[n].clone();
@@ -78,7 +26,7 @@ pub fn edit_item(app: &App, id: &str, quiet: bool) -> Result<()> {
         .tempfile()?;
     std::fs::write(tmp.path(), &orig_text)?;
     loop {
-        open_editor(app, tmp.path())?;
+        editor::open(app, tmp.path())?;
         let text = std::fs::read_to_string(tmp.path())?;
         if text == orig_text {
             eprintln!("doen: no changes");

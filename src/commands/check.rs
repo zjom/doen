@@ -2,11 +2,11 @@
 
 use std::collections::BTreeMap;
 
+use crate::app::App;
 use crate::cli::args::CheckCmd;
-use crate::commands::App;
 use crate::error::{Error, Result};
 use crate::ids;
-use crate::store::{Store, filename_id};
+use crate::store::{Store, filename, filename_id};
 
 pub fn run(app: &App, c: CheckCmd) -> Result<()> {
     if c.fix {
@@ -19,7 +19,9 @@ pub fn run(app: &App, c: CheckCmd) -> Result<()> {
         tx.changes
             .quiet_lines
             .extend(lines.iter().map(|l| format!("check --fix  {l}")));
-        crate::git::commit(app, &tx.changes);
+        if app.cfg.git_autocommit {
+            crate::git::commit(&app.root, &tx.changes);
+        }
         return if open > 0 {
             Err(Error::Silent(1))
         } else {
@@ -79,7 +81,7 @@ fn report(store: &mut Store, mut changes: Option<&mut crate::store::Changes>) ->
                         (Some(old), Some((day, rest))) if old == id => {
                             format!("{day}-{new_id}{}", &rest[id.len()..])
                         }
-                        _ => crate::commands::create::filename(&item),
+                        _ => filename(&item),
                     };
                     store.rename(&mut item, &new_name, ch)?;
                     ch.lines.push(format!(

@@ -2,8 +2,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::app::App;
 use crate::cli::args::Shell;
-use crate::commands::App;
 use crate::error::{Result, usage};
 use crate::item::Place;
 use crate::template;

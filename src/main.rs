@@ -1,8 +1,10 @@
+mod app;
 mod banner;
 mod cli;
 mod commands;
 mod config;
 mod dates;
+mod editor;
 mod error;
 mod filter;
 mod frontmatter;
@@ -13,6 +15,7 @@ mod output;
 mod store;
 mod tags;
 mod template;
+mod term;
 
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();

@@ -1,6 +1,6 @@
 //! The header and the footer of `doen ls`.
 
-use crate::commands::App;
+use crate::app::App;
 
 /// The banner text.
 const BANNER: &str = "do it";

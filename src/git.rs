@@ -3,7 +3,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::commands::App;
 use crate::error::warn;
 use crate::store::Changes;
 
@@ -29,8 +28,8 @@ fn relative(top: &Path, p: &Path) -> Option<String> {
 }
 
 /// Commits the changed paths. A failure is a warning only.
-pub fn commit(app: &App, changes: &Changes) {
-    if !app.cfg.git_autocommit || changes.paths.is_empty() {
+pub fn commit(root: &Path, changes: &Changes) {
+    if changes.paths.is_empty() {
         return;
     }
     let mut lines: Vec<String> = changes
@@ -42,7 +41,7 @@ pub fn commit(app: &App, changes: &Changes) {
     if lines.is_empty() {
         lines.push("doen: update".into());
     }
-    if let Err(e) = try_commit(&app.root, &lines.join("\n"), &changes.paths) {
+    if let Err(e) = try_commit(root, &lines.join("\n"), &changes.paths) {
         warn(format!("no Git commit: {e}"));
     }
 }

@@ -5,6 +5,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use crate::config::ColorMode;
 use crate::filter::{SortField, StatusFilter};
 use crate::item::Kind;
+use crate::output::Format;
 
 pub const TOP_HELP: &str = "\
 doen — a notebook for the terminal
@@ -215,6 +216,20 @@ pub struct FormatArgs {
     /// Print JSON
     #[arg(long)]
     pub json: bool,
+}
+
+impl FormatArgs {
+    pub fn format(&self) -> Format {
+        if self.ids {
+            Format::Ids
+        } else if self.porcelain {
+            Format::Porcelain
+        } else if self.json {
+            Format::Json
+        } else {
+            Format::Human
+        }
+    }
 }
 
 #[derive(Args, Debug)]

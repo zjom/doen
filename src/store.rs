@@ -39,14 +39,51 @@ pub fn filename_id(path: &Path) -> Option<&str> {
     stem.split('-').nth(1)
 }
 
+pub fn filename(item: &Item) -> String {
+    let day = item.meta.created.format("%Y%m%d");
+    match slug(item.title()) {
+        s if s.is_empty() => format!("{day}-{}.md", item.id()),
+        s => format!("{day}-{}-{s}.md", item.id()),
+    }
+}
+
+/// ASCII, lowercase, words joined by `-`, at most 40 bytes, cut at a word boundary if possible.
+fn slug(title: &str) -> String {
+    let ascii = deunicode::deunicode(title).to_lowercase();
+    let mut s = String::new();
+    for c in ascii.chars() {
+        if c.is_ascii_alphanumeric() {
+            s.push(c);
+        } else if !s.ends_with('-') {
+            s.push('-');
+        }
+    }
+    let s = s.trim_matches('-');
+    if s.len() <= 40 {
+        return s.to_string();
+    }
+    let cut = if s.as_bytes()[40] == b'-' {
+        40
+    } else {
+        s[..40].rfind('-').unwrap_or(40)
+    };
+    s[..cut].trim_end_matches('-').to_string()
+}
+
+pub fn require_root(root: &Path) -> Result<()> {
+    if root.is_dir() {
+        Ok(())
+    } else {
+        Err(general(format!(
+            "no store at {}. Run 'doen init' to create one.",
+            root.display()
+        )))
+    }
+}
+
 impl Store {
     pub fn open(root: &Path, warn_invalid: bool) -> Result<Store> {
-        if !root.is_dir() {
-            return Err(general(format!(
-                "no store at {}. Run 'doen init' to create one.",
-                root.display()
-            )));
-        }
+        require_root(root)?;
         let mut store = Store {
             root: root.to_path_buf(),
             items: vec![],
@@ -238,5 +275,22 @@ impl Lock {
                 Err(fs::TryLockError::Error(e)) => return Err(e.into()),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slug;
+
+    #[test]
+    fn slugs() {
+        assert_eq!(slug("Call bank!"), "call-bank");
+        assert_eq!(slug("Café über straße"), "cafe-uber-strasse");
+        assert_eq!(slug("!!!"), "");
+        assert_eq!(
+            slug("a very long title that goes on and on beyond forty"),
+            "a-very-long-title-that-goes-on-and-on"
+        );
+        assert_eq!(slug(&"x".repeat(50)), "x".repeat(40));
     }
 }

@@ -1,29 +1,112 @@
-//! `ls`, `grep`, `trash` and `today`.
+use regex::Regex;
 
+use crate::app::App;
 use crate::banner::{print_footer, print_header};
-use crate::cli::args::{GrepCmd, LsCmd, TodayCmd, TrashCmd};
-use crate::commands::{App, stdout_is_terminal};
+use crate::cli::args::{FilterArgs, GrepCmd, LsCmd, OutputArgs, TodayCmd, TrashCmd};
+use crate::dates::{Clock, Range, parse_range};
 use crate::error::{Error, Result, usage};
-use crate::filter::{Query, StatusFilter, select};
+use crate::filter::{Query, StatusFilter, TextMatch, select};
 use crate::item::{Item, Kind, Place, Status};
-use crate::output::print_groups;
+use crate::output::{Format, print_groups};
 use crate::tags::TagFilter;
+use crate::term::stdout_is_terminal;
+
+fn range(arg: Option<&str>, clock: &Clock) -> Result<Option<Range>> {
+    arg.map(|s| parse_range(s, clock).map_err(usage))
+        .transpose()
+}
+
+/// Builds the query of a list command from the filter options, the kind and the search text.
+fn query(f: &FilterArgs, kind: Option<Kind>, text: Option<&str>, clock: &Clock) -> Result<Query> {
+    let implies_todo = f.status.is_some() || f.due.is_some() || f.overdue || f.closed.is_some();
+    if implies_todo && kind == Some(Kind::Note) {
+        return Err(usage("-s, -d, --overdue and --closed apply only to todos"));
+    }
+    let kind = if implies_todo { Some(Kind::Todo) } else { kind };
+    if [f.all, f.archived, f.trashed]
+        .iter()
+        .filter(|b| **b)
+        .count()
+        > 1
+    {
+        return Err(usage("use only one of -a, --archived and --trashed"));
+    }
+    let mut due = range(f.due.as_deref(), clock)?;
+    if f.overdue {
+        if due.is_some() {
+            return Err(usage("--overdue cannot be used with -d"));
+        }
+        due = Some(Range::Days {
+            start: None,
+            end: clock.today.pred_opt(),
+        });
+        if f.status.is_some_and(|s| s != StatusFilter::Open) {
+            return Err(usage("--overdue selects open todos"));
+        }
+    }
+    let status = f.status.unwrap_or(if f.closed.is_some() {
+        StatusFilter::Closed
+    } else if f.overdue {
+        StatusFilter::Open
+    } else if f.all || f.archived || f.trashed {
+        StatusFilter::Any
+    } else {
+        StatusFilter::Open
+    });
+    let places = if f.trashed {
+        vec![Place::Trash]
+    } else if f.archived {
+        vec![Place::Archive]
+    } else if f.all || (status != StatusFilter::Open && kind == Some(Kind::Todo)) {
+        vec![Place::Root, Place::Archive]
+    } else {
+        vec![Place::Root]
+    };
+    let text = match text.or(f.query.as_deref()) {
+        None if f.regex => return Err(usage("-E requires -q")),
+        None => None,
+        Some(q) if f.regex => Some(TextMatch::Re(
+            Regex::new(&format!("(?i){q}")).map_err(|e| usage(format!("invalid regex: {e}")))?,
+        )),
+        Some(q) => Some(TextMatch::Sub(q.to_lowercase())),
+    };
+    Ok(Query {
+        kind,
+        places,
+        status,
+        tags: TagFilter::new(&f.tags.tag, &f.tags.exclude_tag).map_err(usage)?,
+        date: range(f.date.as_deref(), clock)?,
+        created: range(f.created.as_deref(), clock)?,
+        due,
+        closed: range(f.closed.as_deref(), clock)?,
+        text,
+    })
+}
 
 /// Runs a list query and prints the result. Returns the number of items.
-fn list(app: &App, q: &Query, output: &crate::cli::args::OutputArgs) -> Result<usize> {
+fn list(app: &App, q: &Query, output: &OutputArgs) -> Result<usize> {
     let store = app.store()?;
     let matching = store.items.iter().filter(|i| q.accepts(i, &app.clock));
-    let (todos, notes) = select(matching, output, app.cfg.default_sort);
+    let (todos, notes) = select(
+        matching,
+        output.sort.or(app.cfg.default_sort),
+        output.reverse,
+        output.limit,
+    );
     let n = todos.len() + notes.len();
-    print_groups(app, &[("TODOS", todos), ("NOTES", notes)], output);
+    print_groups(
+        app,
+        &[("TODOS", todos), ("NOTES", notes)],
+        output.format.format(),
+        output.long,
+    );
     Ok(n)
 }
 
 pub fn ls(app: &App, c: LsCmd) -> Result<()> {
-    let q = Query::new(&c.filter, c.kind, None, &app.clock)?;
+    let q = query(&c.filter, c.kind, None, &app.clock)?;
     // The banner and the cheatsheet are for people: only on a terminal, never with a machine format.
-    let f = &c.output.format;
-    let decorate = !(f.ids || f.porcelain || f.json) && stdout_is_terminal();
+    let decorate = c.output.format.format() == Format::Human && stdout_is_terminal();
     if decorate && app.cfg.ls_header && !c.no_header {
         print_header(app);
     }
@@ -38,7 +121,7 @@ pub fn grep(app: &App, c: GrepCmd) -> Result<()> {
     if c.filter.query.is_some() {
         return Err(usage("grep takes the pattern as an argument, not with -q"));
     }
-    let q = Query::new(&c.filter, c.kind, Some(&c.pattern), &app.clock)?;
+    let q = query(&c.filter, c.kind, Some(&c.pattern), &app.clock)?;
     match list(app, &q, &c.output)? {
         0 => Err(Error::NoMatches),
         _ => Ok(()),
@@ -46,40 +129,22 @@ pub fn grep(app: &App, c: GrepCmd) -> Result<()> {
 }
 
 pub fn trash(app: &App, mut c: TrashCmd) -> Result<()> {
-    if c.empty {
-        let mut tx = app.begin()?;
-        let trashed: Vec<usize> = (0..tx.store.items.len())
-            .filter(|&n| tx.store.items[n].place == Place::Trash)
-            .collect();
-        if trashed.is_empty() {
-            eprintln!("doen: the trash is empty");
-            return tx.finish(app);
-        }
-        for &n in &trashed {
-            eprintln!("  {}", super::item_line(&tx.store.items[n]));
-        }
-        app.confirm(&format!("Delete {} items permanently?", trashed.len()))?;
-        for &n in &trashed {
-            let item = tx.store.items[n].clone();
-            tx.store.delete(&item, &mut tx.changes)?;
-            tx.changes
-                .lines
-                .push(format!("deleted  {}  {}", item.id(), item.title()));
-        }
-        return tx.finish(app);
-    }
     if c.filter.all || c.filter.archived {
         return Err(usage("trash lists only the trash"));
     }
     c.filter.trashed = true;
-    let q = Query::new(&c.filter, c.kind, None, &app.clock)?;
+    let q = query(&c.filter, c.kind, None, &app.clock)?;
     list(app, &q, &c.output)?;
     Ok(())
 }
 
 pub fn today(app: &App, c: TodayCmd) -> Result<()> {
-    let tags = TagFilter::new(&c.tags.tag, &c.tags.exclude_tag).map_err(usage)?;
-    let q = Query::scope(vec![Place::Root], StatusFilter::Any, tags);
+    let q = Query {
+        places: vec![Place::Root],
+        status: StatusFilter::Any,
+        tags: TagFilter::new(&c.tags.tag, &c.tags.exclude_tag).map_err(usage)?,
+        ..Query::default()
+    };
     let store = app.store()?;
     let today = app.clock.today;
     let open_todo = |i: &&Item| i.meta.current_status() == Some(Status::Open);
@@ -102,18 +167,18 @@ pub fn today(app: &App, c: TodayCmd) -> Result<()> {
         .iter()
         .copied()
         .filter(|i| i.kind() == Kind::Note && i.meta.date == today);
-    let mut output = c.output.clone();
-    let limit = output.limit.take();
-    let (overdue, _) = select(overdue, &output, app.cfg.default_sort);
-    let (due, _) = select(due, &output, app.cfg.default_sort);
-    let (_, notes) = select(notes, &output, app.cfg.default_sort);
+    let field = c.output.sort.or(app.cfg.default_sort);
+    let reverse = c.output.reverse;
+    let (overdue, _) = select(overdue, field, reverse, None);
+    let (due, _) = select(due, field, reverse, None);
+    let (_, notes) = select(notes, field, reverse, None);
     let mut groups = vec![("OVERDUE", overdue), ("DUE TODAY", due), ("NOTES", notes)];
-    if let Some(mut left) = limit {
+    if let Some(mut left) = c.output.limit {
         for (_, g) in &mut groups {
             g.truncate(left);
             left -= g.len();
         }
     }
-    print_groups(app, &groups, &output);
+    print_groups(app, &groups, c.output.format.format(), c.output.long);
     Ok(())
 }

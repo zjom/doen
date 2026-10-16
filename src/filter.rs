@@ -5,14 +5,13 @@ use std::cmp::Ordering;
 use clap::ValueEnum;
 use regex::Regex;
 
-use crate::cli::args::{FilterArgs, OutputArgs};
-use crate::dates::{Clock, Range, parse_range};
-use crate::error::{Result, usage};
+use crate::dates::{Clock, Range};
 use crate::item::{Item, Kind, Place, Status};
 use crate::tags::TagFilter;
 
-#[derive(Clone, Copy, Debug, PartialEq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, ValueEnum)]
 pub enum StatusFilter {
+    #[default]
     Open,
     Done,
     Drop,
@@ -42,123 +41,25 @@ pub enum SortField {
     Status,
 }
 
-enum TextMatch {
+pub enum TextMatch {
     Sub(String),
     Re(Regex),
 }
 
+#[derive(Default)]
 pub struct Query {
     pub kind: Option<Kind>,
     pub places: Vec<Place>,
-    status: StatusFilter,
-    tags: TagFilter,
-    date: Option<Range>,
-    created: Option<Range>,
-    due: Option<Range>,
-    closed: Option<Range>,
-    text: Option<TextMatch>,
-}
-
-fn range(arg: &Option<String>, clock: &Clock) -> Result<Option<Range>> {
-    arg.as_deref()
-        .map(|s| parse_range(s, clock).map_err(usage))
-        .transpose()
+    pub status: StatusFilter,
+    pub tags: TagFilter,
+    pub date: Option<Range>,
+    pub created: Option<Range>,
+    pub due: Option<Range>,
+    pub closed: Option<Range>,
+    pub text: Option<TextMatch>,
 }
 
 impl Query {
-    /// Builds a query from the filter options and the optional kind argument.
-    pub fn new(
-        f: &FilterArgs,
-        kind: Option<Kind>,
-        query: Option<&str>,
-        clock: &Clock,
-    ) -> Result<Query> {
-        let explicit = f.status;
-        let implies_todo = explicit.is_some() || f.due.is_some() || f.overdue || f.closed.is_some();
-        if implies_todo && kind == Some(Kind::Note) {
-            return Err(usage("-s, -d, --overdue and --closed apply only to todos"));
-        }
-        let kind = if implies_todo { Some(Kind::Todo) } else { kind };
-        if [f.all, f.archived, f.trashed]
-            .iter()
-            .filter(|b| **b)
-            .count()
-            > 1
-        {
-            return Err(usage("use only one of -a, --archived and --trashed"));
-        }
-        let mut due = range(&f.due, clock)?;
-        if f.overdue {
-            if due.is_some() {
-                return Err(usage("--overdue cannot be used with -d"));
-            }
-            due = Some(Range::Days {
-                start: None,
-                end: clock.today.pred_opt(),
-            });
-            if explicit.is_some_and(|s| s != StatusFilter::Open) {
-                return Err(usage("--overdue selects open todos"));
-            }
-        }
-        let status = explicit.unwrap_or(if f.closed.is_some() {
-            StatusFilter::Closed
-        } else if f.overdue {
-            StatusFilter::Open
-        } else if f.all || f.archived || f.trashed {
-            StatusFilter::Any
-        } else {
-            StatusFilter::Open
-        });
-        let places = if f.trashed {
-            vec![Place::Trash]
-        } else if f.archived {
-            vec![Place::Archive]
-        } else if f.all || (status != StatusFilter::Open && kind == Some(Kind::Todo)) {
-            vec![Place::Root, Place::Archive]
-        } else {
-            vec![Place::Root]
-        };
-        let tags = TagFilter::new(&f.tags.tag, &f.tags.exclude_tag).map_err(usage)?;
-        let q = query.or(f.query.as_deref());
-        let text = match q {
-            None => None,
-            Some(q) if f.regex => Some(TextMatch::Re(
-                Regex::new(&format!("(?i){q}"))
-                    .map_err(|e| usage(format!("invalid regex: {e}")))?,
-            )),
-            Some(q) => Some(TextMatch::Sub(q.to_lowercase())),
-        };
-        if f.regex && text.is_none() {
-            return Err(usage("-E requires -q"));
-        }
-        Ok(Query {
-            kind,
-            places,
-            status,
-            tags,
-            date: range(&f.date, clock)?,
-            created: range(&f.created, clock)?,
-            due,
-            closed: range(&f.closed, clock)?,
-            text,
-        })
-    }
-
-    /// A query for the default scope with tag filters only (`today`, `tags`).
-    pub fn scope(places: Vec<Place>, status: StatusFilter, tags: TagFilter) -> Query {
-        Query {
-            kind: None,
-            places,
-            status,
-            tags,
-            date: None,
-            created: None,
-            due: None,
-            closed: None,
-            text: None,
-        }
-    }
-
     pub fn accepts(&self, item: &Item, clock: &Clock) -> bool {
         let m = &item.meta;
         if self.kind.is_some_and(|k| k != m.kind) || !self.places.contains(&item.place) {
@@ -255,15 +156,15 @@ pub fn sort(items: &mut [&Item], field: Option<SortField>, reverse: bool) {
 /// Splits the matching items into sorted todos and notes, and applies the limit.
 pub fn select<'a>(
     items: impl Iterator<Item = &'a Item>,
-    out: &OutputArgs,
-    default_sort: Option<SortField>,
+    field: Option<SortField>,
+    reverse: bool,
+    limit: Option<usize>,
 ) -> (Vec<&'a Item>, Vec<&'a Item>) {
-    let field = out.sort.or(default_sort);
     let (mut todos, mut notes): (Vec<&Item>, Vec<&Item>) =
         items.partition(|i| i.kind() == Kind::Todo);
-    sort(&mut todos, field, out.reverse);
-    sort(&mut notes, field, out.reverse);
-    if let Some(n) = out.limit {
+    sort(&mut todos, field, reverse);
+    sort(&mut notes, field, reverse);
+    if let Some(n) = limit {
         todos.truncate(n);
         notes.truncate(n - todos.len());
     }

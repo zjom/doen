@@ -2,8 +2,9 @@
 
 use chrono::NaiveDate;
 
+use crate::app::{App, Tx};
 use crate::cli::args::StatusCmd;
-use crate::commands::{App, Tx, resolve};
+use crate::commands::resolve_ids;
 use crate::dates::parse_date;
 use crate::error::{Result, usage, warn};
 use crate::item::{Kind, Status};
@@ -21,7 +22,7 @@ pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
         return Err(usage("the date of a status change cannot be in the future"));
     }
     let mut tx = app.begin()?;
-    let idx = resolve(&tx, &c.id, false)?;
+    let idx = resolve_ids(&tx.store, &c.id, false)?;
     for &n in &idx {
         let item = &tx.store.items[n];
         if item.kind() == Kind::Note {

@@ -2,8 +2,7 @@
 
 use chrono::NaiveDate;
 
-use crate::cli::args::{FormatArgs, OutputArgs};
-use crate::commands::App;
+use crate::app::App;
 use crate::dates::display;
 use crate::item::{Item, Kind, Status};
 
@@ -45,21 +44,24 @@ pub fn json_item(item: &Item) -> serde_json::Value {
     serde_json::Value::Object(map)
 }
 
-/// Prints items in a machine format. Returns `false` if no machine format was asked for.
-pub fn print_machine(items: &[&Item], f: &FormatArgs) -> bool {
-    if f.ids {
-        for i in items {
-            println!("{}", i.id());
+#[derive(Clone, Copy, PartialEq)]
+pub enum Format {
+    Human,
+    Ids,
+    Porcelain,
+    Json,
+}
+
+/// Prints items in a machine format. Returns `false` for `Format::Human`.
+pub fn print_machine(items: &[&Item], format: Format) -> bool {
+    match format {
+        Format::Human => return false,
+        Format::Ids => items.iter().for_each(|i| println!("{}", i.id())),
+        Format::Porcelain => items.iter().for_each(|i| println!("{}", porcelain_line(i))),
+        Format::Json => {
+            let v: Vec<serde_json::Value> = items.iter().map(|i| json_item(i)).collect();
+            println!("{}", serde_json::to_string_pretty(&v).expect("JSON"));
         }
-    } else if f.porcelain {
-        for i in items {
-            println!("{}", porcelain_line(i));
-        }
-    } else if f.json {
-        let v: Vec<serde_json::Value> = items.iter().map(|i| json_item(i)).collect();
-        println!("{}", serde_json::to_string_pretty(&v).expect("JSON"));
-    } else {
-        return false;
     }
     true
 }
@@ -101,9 +103,9 @@ fn pad(s: &str, w: usize) -> String {
 }
 
 /// Prints groups of items in the requested format.
-pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], out: &OutputArgs) {
+pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, long: bool) {
     let all: Vec<&Item> = groups.iter().flat_map(|(_, g)| g.iter().copied()).collect();
-    if print_machine(&all, &out.format) {
+    if print_machine(&all, format) {
         return;
     }
     let cell = |i: &Item| match i.meta.heading.as_ref().and(i.meta.current_status()) {
@@ -141,7 +143,7 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], out: &OutputArgs) 
                     d => d,
                 },
             ];
-            if out.long {
+            if long {
                 cols.push(i.meta.date.format(&app.cfg.date_format).to_string());
                 let created = i.meta.created.with_timezone(app.clock.now.offset());
                 cols.push(

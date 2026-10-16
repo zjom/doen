@@ -5,9 +5,10 @@ use std::ffi::OsString;
 
 use clap::{CommandFactory, Parser};
 
+use crate::app::App;
 use crate::commands::lifecycle::{self, Lifecycle};
 use crate::commands::meta::{self, DateField};
-use crate::commands::{App, check, completion, create, edit, init, list, show, status};
+use crate::commands::{check, completion, create, edit, init, list, show, status, tags};
 use crate::config::store_path;
 use crate::error::{Error, Result};
 use crate::ids;
@@ -106,7 +107,7 @@ fn help(word: Option<&str>) -> Result<()> {
 pub fn run(argv: Vec<OsString>) -> Result<()> {
     let cli: Cli = parse(normalize(argv)?)?;
     let g = &cli.global;
-    let app = || App::new(g);
+    let app = || App::new(g.dir.as_deref(), g.color, g.yes);
     match cli.command {
         Command::Note(c) => create::run(&app()?, Kind::Note, c),
         Command::Todo(c) => create::run(&app()?, Kind::Todo, c),
@@ -114,7 +115,7 @@ pub fn run(argv: Vec<OsString>) -> Result<()> {
         Command::Today(c) => list::today(&app()?, c),
         Command::Show(c) => show::show(&app()?, c),
         Command::Grep(c) => list::grep(&app()?, c),
-        Command::Tags(c) => show::tags(&app()?, c),
+        Command::Tags(c) => tags::run(&app()?, c),
         Command::Edit(c) => edit::run(&app()?, c),
         Command::Title(c) => meta::title(&app()?, c),
         Command::Due(c) => meta::date(&app()?, DateField::Due, c),
@@ -130,8 +131,9 @@ pub fn run(argv: Vec<OsString>) -> Result<()> {
         Command::Unarchive(c) => lifecycle::run(&app()?, Lifecycle::Unarchive, c),
         Command::Rm(c) => lifecycle::run(&app()?, Lifecycle::Trash, c),
         Command::Restore(c) => lifecycle::run(&app()?, Lifecycle::Restore, c),
+        Command::Trash(c) if c.empty => lifecycle::empty_trash(&app()?),
         Command::Trash(c) => list::trash(&app()?, c),
-        Command::Init => init::run(g),
+        Command::Init => init::run(g.dir.as_deref()),
         Command::Check(c) => check::run(&app()?, c),
         Command::Completion(c) => {
             completion::print(c.shell);

@@ -1,13 +1,13 @@
 //! `init`.
 
 use std::fs;
+use std::path::Path;
 
-use crate::cli::args::GlobalArgs;
 use crate::config::{DEFAULT_CONFIG, global_config_path, store_path};
 use crate::error::Result;
 
-pub fn run(g: &GlobalArgs) -> Result<()> {
-    let root = store_path(g.dir.as_deref());
+pub fn run(dir: Option<&Path>) -> Result<()> {
+    let root = store_path(dir);
     let existed = root.is_dir();
     fs::create_dir_all(root.join(".templates"))?;
     if existed {

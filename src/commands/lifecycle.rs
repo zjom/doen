@@ -1,7 +1,8 @@
+use crate::app::App;
 use crate::cli::args::IdsCmd;
-use crate::commands::{App, item_line, resolve};
+use crate::commands::{item_line, resolve_ids};
 use crate::error::{Result, warn};
-use crate::item::Item;
+use crate::item::{Item, Place};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Lifecycle {
@@ -41,7 +42,7 @@ impl Lifecycle {
 
 pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
     let mut tx = app.begin()?;
-    let idx = resolve(&tx, &c.id, op == Lifecycle::Restore)?;
+    let idx = resolve_ids(&tx.store, &c.id, op == Lifecycle::Restore)?;
     if op == Lifecycle::Trash {
         for &n in &idx {
             eprintln!("  {}", item_line(&tx.store.items[n]));
@@ -62,6 +63,29 @@ pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
         }
         item.set_date(op.field(), set);
         tx.save(n, op.verb())?;
+    }
+    tx.finish(app)
+}
+
+pub fn empty_trash(app: &App) -> Result<()> {
+    let mut tx = app.begin()?;
+    let trashed: Vec<usize> = (0..tx.store.items.len())
+        .filter(|&n| tx.store.items[n].place == Place::Trash)
+        .collect();
+    if trashed.is_empty() {
+        eprintln!("doen: the trash is empty");
+        return tx.finish(app);
+    }
+    for &n in &trashed {
+        eprintln!("  {}", item_line(&tx.store.items[n]));
+    }
+    app.confirm(&format!("Delete {} items permanently?", trashed.len()))?;
+    for &n in &trashed {
+        let item = tx.store.items[n].clone();
+        tx.store.delete(&item, &mut tx.changes)?;
+        tx.changes
+            .lines
+            .push(format!("deleted  {}  {}", item.id(), item.title()));
     }
     tx.finish(app)
 }
