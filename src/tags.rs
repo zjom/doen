@@ -1,5 +1,7 @@
 //! Tag validation and hierarchical matching.
 
+use crate::frontmatter::Value;
+
 /// Normalizes one tag to lowercase and validates it.
 pub fn normalize(tag: &str) -> Result<String, String> {
     let t = tag.trim().to_lowercase();
@@ -26,6 +28,26 @@ pub fn parse_list(s: &str) -> Result<Vec<String>, String> {
         .filter(|t| !t.trim().is_empty())
         .map(normalize)
         .collect()
+}
+
+/// Reads tags from a sequence or a comma-separated string. Empty entries are skipped.
+pub fn from_value(v: &Value) -> Result<Vec<String>, String> {
+    match v {
+        Value::Str(s) => parse_list(s),
+        Value::Seq(items) => items
+            .iter()
+            .map(|t| t.as_str().ok_or("tags must be strings"))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|t| !t.trim().is_empty())
+            .map(normalize)
+            .collect(),
+        Value::Map(_) => Err("tags must be a list".into()),
+    }
+}
+
+pub fn to_value(tags: &[String]) -> Value {
+    Value::Seq(tags.iter().map(|t| Value::Str(t.clone())).collect())
 }
 
 /// Whether `tag` is `filter` or below `filter` in the hierarchy.
@@ -80,6 +102,18 @@ mod tests {
         for bad in ["/work", "work/", "a//b", "a b", "#x", "é"] {
             assert!(normalize(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn from_yaml() {
+        let s = |v: &str| Value::Str(v.into());
+        assert_eq!(from_value(&s("A, b,")), Ok(vec!["a".into(), "b".into()]));
+        assert_eq!(
+            from_value(&Value::Seq(vec![s("x"), s(" ")])),
+            Ok(vec!["x".into()])
+        );
+        assert!(from_value(&Value::Seq(vec![Value::Seq(vec![])])).is_err());
+        assert!(from_value(&Value::Map(vec![])).is_err());
     }
 
     #[test]

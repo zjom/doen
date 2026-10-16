@@ -1,13 +1,14 @@
 //! Templates for new items.
 
-use std::path::PathBuf;
+use std::fmt::Display;
+use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, NaiveDate};
 
 use crate::config::xdg_config_dir;
 use crate::dates::{Clock, format_iso, parse_date, weekday_short};
-use crate::error::{Result, general, usage};
-use crate::frontmatter::{Doc, Value};
+use crate::error::{Error, Result, general, usage};
+use crate::frontmatter::{Doc, MANAGED};
 use crate::item::Kind;
 use crate::tags;
 
@@ -17,16 +18,14 @@ pub struct Template {
     pub body: String,
 }
 
-/// The fields that doen manages and that a template cannot set.
-const FORBIDDEN: [&str; 7] = [
-    "id", "kind", "created", "date", "archived", "trashed", "status",
-];
+/// The managed fields that a template can set.
+const MANAGED_IN_TEMPLATE: [&str; 2] = ["due", "tags"];
 
-pub fn dirs(store: &std::path::Path) -> [PathBuf; 2] {
+pub fn dirs(store: &Path) -> [PathBuf; 2] {
     [store.join(".templates"), xdg_config_dir().join("templates")]
 }
 
-fn find(store: &std::path::Path, name: &str) -> Option<PathBuf> {
+fn find(store: &Path, name: &str) -> Option<PathBuf> {
     dirs(store)
         .into_iter()
         .map(|d| d.join(format!("{name}.md")))
@@ -34,7 +33,7 @@ fn find(store: &std::path::Path, name: &str) -> Option<PathBuf> {
 }
 
 /// Loads the template for `-T` (or the default template of the kind).
-pub fn load(store: &std::path::Path, kind: Kind, opt: Option<&str>) -> Result<Option<Template>> {
+pub fn load(store: &Path, kind: Kind, opt: Option<&str>) -> Result<Option<Template>> {
     let (name, path) = match opt {
         Some("none") => return Ok(None),
         Some(n) => (
@@ -52,7 +51,10 @@ pub fn load(store: &std::path::Path, kind: Kind, opt: Option<&str>) -> Result<Op
         Some(Ok(parsed)) => parsed,
         Some(Err(e)) => return Err(general(format!("{}: {e}", path.display()))),
     };
-    if let Some(k) = doc.keys().find(|k| FORBIDDEN.contains(k)) {
+    if let Some(k) = doc
+        .keys()
+        .find(|k| MANAGED.contains(k) && !MANAGED_IN_TEMPLATE.contains(k))
+    {
         return Err(general(format!(
             "{}: a template cannot set '{k}'",
             path.display()
@@ -71,32 +73,20 @@ pub fn load(store: &std::path::Path, kind: Kind, opt: Option<&str>) -> Result<Op
 }
 
 impl Template {
+    fn error(&self, e: impl Display) -> Error {
+        general(format!("template '{}': {e}", self.name))
+    }
+
     pub fn tags(&self) -> Result<Vec<String>> {
-        match self.doc.get("tags") {
-            None => Ok(vec![]),
-            Some(Value::Seq(items)) => items
-                .iter()
-                .map(|t| {
-                    tags::normalize(t.as_str().unwrap_or(""))
-                        .map_err(|e| general(format!("template '{}': {e}", self.name)))
-                })
-                .collect(),
-            Some(Value::Str(s)) => {
-                tags::parse_list(s).map_err(|e| general(format!("template '{}': {e}", self.name)))
-            }
-            Some(_) => Err(general(format!(
-                "template '{}': 'tags' must be a list",
-                self.name
-            ))),
-        }
+        self.doc.get("tags").map_or(Ok(vec![]), |v| {
+            tags::from_value(v).map_err(|e| self.error(e))
+        })
     }
 
     pub fn due(&self, clock: &Clock) -> Result<Option<NaiveDate>> {
         match self.doc.get_str("due") {
             None | Some("") => Ok(None),
-            Some(s) => parse_date(s, clock)
-                .map(Some)
-                .map_err(|e| general(format!("template '{}': {e}", self.name))),
+            Some(s) => parse_date(s, clock).map(Some).map_err(|e| self.error(e)),
         }
     }
 
@@ -104,7 +94,7 @@ impl Template {
     pub fn extra_keys(&self) -> Vec<String> {
         self.doc
             .keys()
-            .filter(|k| *k != "tags" && *k != "due")
+            .filter(|k| !MANAGED_IN_TEMPLATE.contains(k))
             .map(String::from)
             .collect()
     }

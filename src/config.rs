@@ -135,75 +135,52 @@ impl Config {
         if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
             cfg.color = Some(ColorMode::Never);
         }
-        for (src, entries) in [
-            (global_config_path(), read_file(&global_config_path())?),
-            (
-                store.join(".doen.yaml"),
-                read_file(&store.join(".doen.yaml"))?,
-            ),
-        ] {
-            for (k, v) in entries {
+        for src in [global_config_path(), store.join(".doen.yaml")] {
+            for (k, v) in read_file(&src)? {
                 cfg.apply(&k, &v)
                     .map_err(|e| general(format!("{}: {e}", src.display())))?;
             }
         }
         for key in KEYS {
-            if let Ok(v) = std::env::var(format!("DOEN_{}", key.to_ascii_uppercase())) {
-                let value = if key == "default_tags" {
-                    Value::Seq(v.split(',').map(|t| Value::Str(t.trim().into())).collect())
-                } else {
-                    Value::Str(v)
-                };
-                cfg.apply(key, &value)
-                    .map_err(|e| general(format!("DOEN_{}: {e}", key.to_ascii_uppercase())))?;
+            let var = format!("DOEN_{}", key.to_ascii_uppercase());
+            if let Ok(v) = std::env::var(&var) {
+                cfg.apply(key, &Value::Str(v))
+                    .map_err(|e| general(format!("{var}: {e}")))?;
             }
         }
         Ok(cfg)
     }
 
     fn apply(&mut self, key: &str, v: &Value) -> std::result::Result<(), String> {
-        let s = || {
-            v.as_str()
-                .ok_or_else(|| format!("'{key}' must be a single value"))
-        };
-        let bad = |s: &str| format!("invalid value for '{key}': '{s}'");
+        if !KEYS.contains(&key) {
+            warn(format!("unknown config key '{key}'"));
+            return Ok(());
+        }
+        if key == "default_tags" {
+            self.default_tags = tags::from_value(v)?;
+            return Ok(());
+        }
+        let s = v
+            .as_str()
+            .ok_or_else(|| format!("'{key}' must be a single value"))?;
+        let bad = || format!("invalid value for '{key}': '{s}'");
+        let flag = || parse_bool(s).ok_or_else(bad);
         match key {
-            "editor" => self.editor = Some(s()?.to_string()),
-            "date_format" => self.date_format = s()?.to_string(),
-            "week_start" => self.week_start = s()?.parse().map_err(|_| bad(s().unwrap()))?,
-            "relative_days" => self.relative_days = s()?.parse().map_err(|_| bad(s().unwrap()))?,
-            "trash_days" => self.trash_days = s()?.parse().map_err(|_| bad(s().unwrap()))?,
-            "archive_closed" => {
-                self.archive_closed = parse_bool(s()?).ok_or_else(|| bad(s().unwrap()))?
-            }
-            "git_autocommit" => {
-                self.git_autocommit = parse_bool(s()?).ok_or_else(|| bad(s().unwrap()))?
-            }
-            "ls_header" => self.ls_header = parse_bool(s()?).ok_or_else(|| bad(s().unwrap()))?,
-            "ls_footer" => self.ls_footer = parse_bool(s()?).ok_or_else(|| bad(s().unwrap()))?,
-            "color" => {
-                self.color = Some(ColorMode::from_str(s()?, false).map_err(|_| bad(s().unwrap()))?)
-            }
+            "editor" => self.editor = Some(s.into()),
+            "date_format" => self.date_format = s.into(),
+            "week_start" => self.week_start = s.parse().map_err(|_| bad())?,
+            "relative_days" => self.relative_days = s.parse().map_err(|_| bad())?,
+            "trash_days" => self.trash_days = s.parse().map_err(|_| bad())?,
+            "archive_closed" => self.archive_closed = flag()?,
+            "git_autocommit" => self.git_autocommit = flag()?,
+            "ls_header" => self.ls_header = flag()?,
+            "ls_footer" => self.ls_footer = flag()?,
+            "color" => self.color = Some(ColorMode::from_str(s, false).map_err(|_| bad())?),
+            "default_sort" if s.is_empty() => self.default_sort = None,
             "default_sort" => {
-                let f = s()?;
-                if !f.is_empty() {
-                    self.default_sort = Some(SortField::from_str(f, false).map_err(|_| bad(f))?);
-                }
+                self.default_sort = Some(SortField::from_str(s, false).map_err(|_| bad())?)
             }
-            "default_tags" => {
-                let list: Vec<&str> = match v {
-                    Value::Seq(items) => items.iter().filter_map(Value::as_str).collect(),
-                    Value::Str(s) if s.is_empty() => vec![],
-                    Value::Str(s) => s.split(',').collect(),
-                    Value::Map(_) => return Err(bad("{...}")),
-                };
-                self.default_tags = list
-                    .iter()
-                    .filter(|t| !t.trim().is_empty())
-                    .map(|t| tags::normalize(t))
-                    .collect::<std::result::Result<_, _>>()?;
-            }
-            _ => warn(format!("unknown config key '{key}'")),
+            _ => unreachable!("every key in KEYS is handled"),
         }
         Ok(())
     }

@@ -68,11 +68,7 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     if let Some(d) = due {
         doc.set("due", Value::Str(format_iso(d)), false);
     }
-    doc.set(
-        "tags",
-        Value::Seq(tag_list.iter().map(|t| Value::Str(t.clone())).collect()),
-        true,
-    );
+    doc.set("tags", tags::to_value(&tag_list), true);
     if let Some(t) = &tmpl {
         for k in t.extra_keys() {
             doc.copy_from(&t.doc, &k);

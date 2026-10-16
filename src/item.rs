@@ -355,8 +355,7 @@ impl Item {
     }
 
     pub fn set_tags(&mut self, tags: &[String]) {
-        let v = Value::Seq(tags.iter().map(|t| Value::Str(t.clone())).collect());
-        self.doc.set("tags", v, true);
+        self.doc.set("tags", tags::to_value(tags), true);
         self.refreshed();
     }
 
