@@ -27,3 +27,4 @@ rustc-ice-*.txt
 #.idea/
 # <<< get-ignore rust <<<
 result
+.direnv
