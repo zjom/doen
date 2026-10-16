@@ -1,5 +1,3 @@
-//! `title`, `due`, `date` and `tag`.
-
 use crate::app::App;
 use crate::cli::args::{DateCmd, TagArgs, TitleCmd};
 use crate::commands::resolve_ids;

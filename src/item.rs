@@ -336,7 +336,6 @@ impl Item {
         format!("{}{}", self.doc.render(), self.body)
     }
 
-    /// Re-reads the metadata after a change to the frontmatter or the body.
     pub fn refresh(&mut self) -> Result<(), String> {
         self.meta = Meta::parse(&self.doc, &self.body)?.ok_or("missing 'id'")?;
         Ok(())
@@ -379,7 +378,6 @@ impl Item {
         self.sync_checkbox();
     }
 
-    /// Rewrites the heading line with a checkbox and a title.
     pub fn set_heading(&mut self, checkbox: Option<char>, title: &str) {
         let line = match checkbox {
             Some(c) => format!("# [{c}] {title}"),

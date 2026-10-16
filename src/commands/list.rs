@@ -16,7 +16,6 @@ fn range(arg: Option<&str>, clock: &Clock) -> Result<Option<Range>> {
         .transpose()
 }
 
-/// Builds the query of a list command from the filter options, the kind and the search text.
 fn query(f: &FilterArgs, kind: Option<Kind>, text: Option<&str>, clock: &Clock) -> Result<Query> {
     let implies_todo = f.status.is_some() || f.due.is_some() || f.overdue || f.closed.is_some();
     if implies_todo && kind == Some(Kind::Note) {

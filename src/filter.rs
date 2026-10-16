@@ -1,5 +1,3 @@
-//! Scope, filters and sorting for the list commands.
-
 use std::cmp::Ordering;
 
 use clap::ValueEnum;

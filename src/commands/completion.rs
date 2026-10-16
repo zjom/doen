@@ -1,5 +1,3 @@
-//! `completion` and the hidden `__complete` data command.
-
 use std::collections::BTreeSet;
 
 use crate::app::App;

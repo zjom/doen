@@ -1,5 +1,3 @@
-//! The store: scanning, atomic writes, moves, the lock and trash purge.
-
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -209,7 +207,6 @@ impl Store {
         Ok(())
     }
 
-    /// Renames an item file inside its directory.
     pub fn rename(&mut self, n: usize, new_name: &str, changes: &mut Changes) -> Result<()> {
         let item = &mut self.items[n];
         let target = item.path.with_file_name(new_name);

@@ -2,7 +2,6 @@
 
 use crate::app::App;
 
-/// The banner text.
 const BANNER: &str = "do it";
 
 /// Glyphs in the "ANSI Shadow" style, six rows each.

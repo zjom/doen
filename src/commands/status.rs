@@ -1,5 +1,3 @@
-//! `done`, `drop` and `reopen`.
-
 use chrono::NaiveDate;
 
 use crate::app::App;

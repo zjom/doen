@@ -1,5 +1,3 @@
-//! `note` and `todo`.
-
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -85,7 +83,6 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     let mut item = Item::new(PathBuf::new(), Place::Root, doc, body).map_err(general)?;
 
     if title.is_empty() {
-        // Release the lock while the editor is open.
         drop(tx);
         item = edit_new(app, item)?;
         tx = app.begin()?;

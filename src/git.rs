@@ -1,5 +1,3 @@
-//! Automatic Git commits (`git_autocommit`).
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

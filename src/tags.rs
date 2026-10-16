@@ -1,8 +1,5 @@
-//! Tag validation and hierarchical matching.
-
 use crate::frontmatter::Value;
 
-/// Normalizes one tag to lowercase and validates it.
 pub fn normalize(tag: &str) -> Result<String, String> {
     let t = tag.trim().to_lowercase();
     if t.is_empty() {
@@ -22,7 +19,6 @@ pub fn normalize(tag: &str) -> Result<String, String> {
     Ok(t)
 }
 
-/// Splits a comma-separated tag list and validates each tag.
 pub fn parse_list(s: &str) -> Result<Vec<String>, String> {
     s.split(',')
         .filter(|t| !t.trim().is_empty())

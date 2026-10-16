@@ -1,5 +1,3 @@
-//! ID generation and resolution.
-
 use crate::error::{Error, Result};
 use crate::item::Place;
 use crate::store::Store;

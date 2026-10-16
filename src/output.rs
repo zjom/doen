@@ -1,5 +1,3 @@
-//! Output formats: the default table, `--ids`, `--porcelain` and `--json`.
-
 use crate::app::App;
 use crate::dates::{display, format_iso};
 use crate::item::{Item, Kind, Status};

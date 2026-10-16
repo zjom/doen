@@ -1,16 +1,10 @@
 use std::fmt;
 
-/// An error that ends the command. Each variant maps to one exit code.
 #[derive(Debug)]
 pub enum Error {
-    /// Exit code 1.
     General(String),
-    /// Exit code 2: invalid option, invalid date, missing argument, unknown command,
-    /// command on the wrong kind of item.
     Usage(String),
-    /// Exit code 3: an ID is not found or is ambiguous.
     NotFound(String),
-    /// Exit code 4: the user declined, or no terminal was available for a prompt.
     Declined(String),
     /// Exit with a code and print nothing more (the message was already printed).
     Silent(i32),

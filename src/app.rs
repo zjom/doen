@@ -37,7 +37,6 @@ impl App {
         })
     }
 
-    /// Loads the store for a read-only command.
     pub fn store(&self) -> Result<Store> {
         Store::open(&self.root, true)
     }

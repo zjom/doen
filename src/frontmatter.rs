@@ -249,7 +249,6 @@ impl Doc {
     }
 }
 
-/// Puts a string in YAML double quotation marks.
 pub fn quote(s: &str) -> String {
     let mut out = String::from("\"");
     for c in s.chars() {

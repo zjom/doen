@@ -1,5 +1,3 @@
-//! Date parsing (single dates and ranges) and relative display.
-
 use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, Months, NaiveDate, Weekday};
 
 /// The current moment and the settings that date parsing depends on.
@@ -28,7 +26,6 @@ impl Clock {
         }
     }
 
-    /// The local day of a timestamp, in the time zone of the clock.
     pub fn local_day(&self, t: &DateTime<FixedOffset>) -> NaiveDate {
         t.with_timezone(self.now.offset()).date_naive()
     }
