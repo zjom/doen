@@ -56,7 +56,7 @@ _doen() {
                 '(-T --template)'{-T,--template}'[template]:template:(none $(doen __complete templates 2>/dev/null))' \
                 '(-w --date)'{-w,--date}'[date]:date:_doen_dates' '(-d --due)'{-d,--due}'[due]:date:_doen_dates' \
                 '(-e --edit)'{-e,--edit}'[edit]' '*:title:' ;;
-        ls|grep|trash|today|-*) _arguments $common $filters '--empty[empty the trash]' '*:kind:(note todo)' ;;
+        ls|grep|trash|today|-*) _arguments $common $filters '--empty[empty the trash]' '--no-header[no banner]' '--no-footer[no cheatsheet]' '*:kind:(note todo)' ;;
         tag) if (( CURRENT == 3 )); then _values 'action' add rm
              elif (( CURRENT == 4 )); then _doen_tags
              else _doen_ids; fi ;;

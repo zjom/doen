@@ -127,6 +127,12 @@ pub struct LsCmd {
     pub filter: FilterArgs,
     #[command(flatten)]
     pub output: OutputArgs,
+    /// Do not print the banner above the list
+    #[arg(long)]
+    pub no_header: bool,
+    /// Do not print the command cheatsheet below the list
+    #[arg(long)]
+    pub no_footer: bool,
     #[command(flatten)]
     pub global: GlobalArgs,
 }

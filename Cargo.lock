@@ -244,6 +244,7 @@ dependencies = [
  "predicates",
  "rand",
  "regex",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",

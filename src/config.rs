@@ -9,7 +9,7 @@ use crate::error::{Result, general, warn};
 use crate::frontmatter::{Value, parse_yaml};
 use crate::tags;
 
-pub const KEYS: [&str; 10] = [
+pub const KEYS: [&str; 12] = [
     "editor",
     "date_format",
     "week_start",
@@ -20,6 +20,8 @@ pub const KEYS: [&str; 10] = [
     "trash_days",
     "git_autocommit",
     "color",
+    "ls_header",
+    "ls_footer",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -52,6 +54,8 @@ pub struct Config {
     pub trash_days: i64,
     pub git_autocommit: bool,
     pub color: Option<ColorMode>,
+    pub ls_header: bool,
+    pub ls_footer: bool,
 }
 
 impl Default for Config {
@@ -67,6 +71,8 @@ impl Default for Config {
             trash_days: 30,
             git_autocommit: false,
             color: None,
+            ls_header: true,
+            ls_footer: true,
         }
     }
 }
@@ -185,6 +191,8 @@ impl Config {
             "git_autocommit" => {
                 self.git_autocommit = parse_bool(s()?).ok_or_else(|| bad(s().unwrap()))?
             }
+            "ls_header" => self.ls_header = parse_bool(s()?).ok_or_else(|| bad(s().unwrap()))?,
+            "ls_footer" => self.ls_footer = parse_bool(s()?).ok_or_else(|| bad(s().unwrap()))?,
             "color" => self.color = Some(ColorMode::parse(s()?).ok_or_else(|| bad(s().unwrap()))?),
             "default_sort" => {
                 let f = s()?;
@@ -230,4 +238,6 @@ pub const DEFAULT_CONFIG: &str = "\
 # trash_days: 30
 # git_autocommit: false
 # color: auto
+# ls_header: true        # the banner above `doen ls`
+# ls_footer: true        # the cheatsheet below `doen ls`
 ";

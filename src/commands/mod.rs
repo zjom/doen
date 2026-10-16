@@ -112,6 +112,11 @@ pub fn ask(prompt: &str) -> std::io::Result<String> {
     Ok(line)
 }
 
+/// Whether stdout is a terminal. The hidden `DOEN_ASSUME_TTY` variable is a test hook.
+pub fn stdout_is_terminal() -> bool {
+    std::env::var_os("DOEN_ASSUME_TTY").is_some() || std::io::stdout().is_terminal()
+}
+
 /// Whether a terminal is available for the editor. The hidden `DOEN_ASSUME_TTY` variable is a
 /// test hook.
 pub fn has_terminal() -> bool {

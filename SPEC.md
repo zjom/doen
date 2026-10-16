@@ -197,6 +197,15 @@ An explicit `-s` option always takes precedence over the default status in this 
 | `--porcelain` | Prints a stable output format with tab-separated columns (see Porcelain and JSON). |
 | `--json` | Prints a JSON array of items (see Porcelain and JSON). |
 
+### Header and footer
+
+If stdout is a terminal, `doen ls` prints a banner ("do it" in big letters) above the list and a cheatsheet of common commands below the list. doen does not print the banner or the cheatsheet with `--ids`, `--porcelain` or `--json`, or if stdout is not a terminal. The other list commands (`grep`, `trash`, `today`) do not print them. doen centers the banner, draws a rule across the terminal below the banner and above the cheatsheet, and puts as many cheatsheet columns on a line as the terminal fits. The width comes from `$COLUMNS`, then from the terminal size, then defaults to 80.
+
+| Option | Meaning |
+| --- | --- |
+| `--no-header` | Does not print the banner. The `ls_header` config key sets the default. |
+| `--no-footer` | Does not print the cheatsheet. The `ls_footer` config key sets the default. |
+
 ### Porcelain and JSON
 
 The `--ids` option, the `--porcelain` option and the `--json` option work with these commands: `ls`, `grep`, `today`, `trash` and `show`. The `tags` command accepts `--porcelain` (with the columns `tag` and `count`) and `--json`.
@@ -625,6 +634,8 @@ Examples:
 | `trash_days` | `30` | The number of days N. doen deletes an item permanently N days after the item goes to the trash. The value `0` disables permanent deletion. |
 | `git_autocommit` | `false` | If `true`, doen makes a Git commit after every mutating command (see Git). |
 | `color` | `auto` | The color mode: `auto`, `always` or `never`. |
+| `ls_header` | `true` | If `false`, `doen ls` does not print the banner (see Header and footer). |
+| `ls_footer` | `true` | If `false`, `doen ls` does not print the cheatsheet (see Header and footer). |
 
 ### Environment
 

@@ -1,7 +1,8 @@
 //! `ls`, `grep`, `trash` and `today`.
 
+use crate::banner::{print_footer, print_header};
 use crate::cli::args::{GrepCmd, LsCmd, TodayCmd, TrashCmd};
-use crate::commands::App;
+use crate::commands::{App, stdout_is_terminal};
 use crate::error::{Error, Result, usage};
 use crate::filter::{Query, StatusFilter, select};
 use crate::item::{Item, Kind, Place, Status};
@@ -31,7 +32,16 @@ fn list(app: &App, q: &Query, output: &crate::cli::args::OutputArgs) -> Result<u
 
 pub fn ls(app: &App, c: LsCmd) -> Result<()> {
     let q = Query::new(&c.filter, parse_kind(c.kind.as_deref())?, None, &app.clock)?;
+    // The banner and the cheatsheet are for people: only on a terminal, never with a machine format.
+    let f = &c.output.format;
+    let decorate = !(f.ids || f.porcelain || f.json) && stdout_is_terminal();
+    if decorate && app.cfg.ls_header && !c.no_header {
+        print_header(app);
+    }
     list(app, &q, &c.output)?;
+    if decorate && app.cfg.ls_footer && !c.no_footer {
+        print_footer(app);
+    }
     Ok(())
 }
 

@@ -151,6 +151,39 @@ fn default_list() {
 }
 
 #[test]
+fn ls_header_and_footer() {
+    let e = Env::new();
+    e.ok(&["t", "pay", "invoice"]);
+    let tty = |args: &[&str], cfg: &str| {
+        fs::write(e.store().join(".doen.yaml"), cfg).unwrap();
+        let o = e
+            .cmd()
+            .env("DOEN_ASSUME_TTY", "1")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(o.status.success());
+        String::from_utf8(o.stdout).unwrap()
+    };
+    let out = tty(&["ls"], "");
+    assert!(out.starts_with(&format!("{}██████╗  ██████╗", " ".repeat(24))));
+    assert!(out.contains("TODOS\n  "));
+    assert!(out.contains("\n❯ doen · doen t <title> · "));
+    assert!(out.trim_end().ends_with("· doen help"));
+    assert!(tty(&[], "").contains("██████╗  ██████╗"));
+    assert!(tty(&["ls", "--no-header"], "").starts_with("TODOS"));
+    assert!(!tty(&["ls", "--no-footer"], "").contains("❯ doen"));
+    let plain = tty(&["ls", "--no-header", "--no-footer"], "");
+    assert!(plain.starts_with("TODOS") && plain.trim_end().ends_with("[ ] pay invoice"));
+    assert_eq!(tty(&["ls"], "ls_header: false\nls_footer: false\n"), plain);
+    assert_eq!(tty(&["ls", "--ids"], "").lines().count(), 1);
+    assert!(!tty(&["today"], "").contains("██████╗"));
+    // Not a terminal: no banner, no cheatsheet.
+    fs::remove_file(e.store().join(".doen.yaml")).unwrap();
+    assert_eq!(e.ok(&["ls"]), plain);
+}
+
+#[test]
 fn status_archive_and_reopen() {
     let e = Env::new();
     let id = e.id(&["t", "tax", "return"]);
