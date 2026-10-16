@@ -7,7 +7,6 @@ use crate::filter::{Query, StatusFilter};
 use crate::item::Place;
 
 pub fn run(app: &App, c: TagsCmd) -> Result<()> {
-    let store = app.store()?;
     let q = if c.all {
         Query {
             places: vec![Place::Root, Place::Archive],
@@ -20,6 +19,7 @@ pub fn run(app: &App, c: TagsCmd) -> Result<()> {
             ..Query::default()
         }
     };
+    let store = app.store(&q.places)?;
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for i in store.items.iter().filter(|i| q.accepts(i, &app.clock)) {
         for t in &i.meta.tags {

@@ -20,7 +20,7 @@ pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
         return Err(usage("the date of a status change cannot be in the future"));
     }
     let mut tx = app.begin()?;
-    let idx = resolve_ids(&tx.store, &c.id, false)?;
+    let idx = resolve_ids(&mut tx.store, &c.id, false)?;
     for &n in &idx {
         let item = &tx.store.items[n];
         if item.kind() == Kind::Note {

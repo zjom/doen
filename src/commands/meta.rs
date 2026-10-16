@@ -12,7 +12,7 @@ pub fn title(app: &App, c: TitleCmd) -> Result<()> {
         return Err(usage("the title cannot be empty"));
     }
     let mut tx = app.begin()?;
-    let n = resolve_ids(&tx.store, std::slice::from_ref(&c.id), false)?[0];
+    let n = resolve_ids(&mut tx.store, std::slice::from_ref(&c.id), false)?[0];
     let item = &mut tx.store.items[n];
     if item.meta.heading.is_some() && item.title() == new_title {
         warn(format!("{}: the title is already '{new_title}'", item.id()));
@@ -54,7 +54,7 @@ pub fn date(app: &App, field: DateField, c: DateCmd) -> Result<()> {
         Some(parse_date(&c.date, &app.clock).map_err(usage)?)
     };
     let mut tx = app.begin()?;
-    let idx = resolve_ids(&tx.store, &c.id, false)?;
+    let idx = resolve_ids(&mut tx.store, &c.id, false)?;
     if field == DateField::Due
         && let Some(&n) = idx
             .iter()
@@ -95,7 +95,7 @@ pub fn tag(app: &App, add: bool, c: TagArgs) -> Result<()> {
         return Err(usage("no tags given"));
     }
     let mut tx = app.begin()?;
-    let idx = resolve_ids(&tx.store, &c.id, false)?;
+    let idx = resolve_ids(&mut tx.store, &c.id, false)?;
     for n in idx {
         let item = &mut tx.store.items[n];
         let mut new = item.meta.tags.clone();

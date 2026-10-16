@@ -17,7 +17,7 @@ use crate::ids;
 use crate::store::Store;
 
 /// Resolves ID arguments. The argument `-` reads whitespace-separated IDs from stdin.
-pub fn resolve_ids(store: &Store, args: &[String], trash: bool) -> Result<Vec<usize>> {
+pub fn resolve_ids(store: &mut Store, args: &[String], trash: bool) -> Result<Vec<usize>> {
     let mut expanded = vec![];
     let mut stdin_read = false;
     for a in args {

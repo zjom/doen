@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,10 @@ pub struct Store {
     pub items: Vec<Item>,
     /// Files that look like doen items but cannot be parsed.
     pub invalid: Vec<(PathBuf, String)>,
+    /// Every file that may be an item, in all places, parsed or not.
+    pub index: Vec<(PathBuf, Place)>,
+    /// The files of the index that `load` has read.
+    seen: HashSet<PathBuf>,
 }
 
 /// One change to one item: an output line `verb  id  title` and a line of the commit message.
@@ -105,20 +110,25 @@ pub fn require_root(root: &Path) -> Result<()> {
 }
 
 impl Store {
-    pub fn open(root: &Path, warn_invalid: bool) -> Result<Store> {
+    /// Lists every folder, but parses only the files in `places`. Other items are parsed on
+    /// demand by `load`, for example when an ID resolves to them.
+    pub fn open(root: &Path, places: &[Place], warn_invalid: bool) -> Result<Store> {
         require_root(root)?;
         let mut store = Store {
             root: root.to_path_buf(),
             items: vec![],
             invalid: vec![],
+            index: vec![],
+            seen: HashSet::new(),
         };
-        for place in [Place::Root, Place::Archive, Place::Trash] {
-            store.scan(place, warn_invalid)?;
+        for place in Place::ALL {
+            store.list(place)?;
         }
+        store.load_places(places, warn_invalid);
         Ok(store)
     }
 
-    fn scan(&mut self, place: Place, warn_invalid: bool) -> Result<()> {
+    fn list(&mut self, place: Place) -> Result<()> {
         let dir = self.root.join(place.dir());
         let entries = match fs::read_dir(&dir) {
             Ok(e) => e,
@@ -127,54 +137,83 @@ impl Store {
         };
         let mut paths: Vec<PathBuf> = entries
             .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| {
-                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                name.ends_with(".md") && !name.starts_with(".doen-tmp-") && p.is_file()
+            .filter(|e| {
+                let name = e.file_name();
+                let name = name.to_str().unwrap_or("");
+                name.ends_with(".md")
+                    && !name.starts_with(".doen-tmp-")
+                    && match e.file_type() {
+                        // Follows symlinks, without the cost of a `stat` for plain files.
+                        Ok(t) if t.is_symlink() => e.path().is_file(),
+                        Ok(t) => t.is_file(),
+                        Err(_) => false,
+                    }
             })
+            .map(|e| e.path())
             .collect();
         paths.sort();
-        for path in paths {
-            let text = match fs::read_to_string(&path) {
-                Ok(t) => t,
-                Err(e) => {
-                    if warn_invalid {
-                        warn(format!("{}: {e}", path.display()));
-                    }
-                    self.invalid.push((path, e.to_string()));
-                    continue;
-                }
-            };
-            match Item::parse(&path, place, &text) {
-                Ok(Some(item)) => {
-                    if warn_invalid && filename_id(&path) != Some(item.id()) {
-                        warn(format!(
-                            "{}: the filename does not match the id '{}'",
-                            path.display(),
-                            item.id()
-                        ));
-                    }
-                    self.items.push(item);
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    if warn_invalid {
-                        warn(format!("skipped {}: {e}", path.display()));
-                    }
-                    self.invalid.push((path, e));
-                }
-            }
-        }
+        self.index.extend(paths.into_iter().map(|p| (p, place)));
         Ok(())
     }
 
-    /// The number of items and invalid files, for the choice of the ID length.
-    pub fn file_count(&self) -> usize {
-        self.items.len() + self.invalid.len()
+    /// Parses one file of the index. Returns the item index, or `None` if the file is not an
+    /// item or cannot be parsed. A file that is loaded already is not parsed again.
+    pub fn load(&mut self, path: &Path, place: Place, warn_invalid: bool) -> Option<usize> {
+        if !self.seen.insert(path.to_path_buf()) {
+            return self.items.iter().position(|i| i.path == path);
+        }
+        let text = match fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) => {
+                if warn_invalid {
+                    warn(format!("{}: {e}", path.display()));
+                }
+                self.invalid.push((path.to_path_buf(), e.to_string()));
+                return None;
+            }
+        };
+        match Item::parse(path, place, &text) {
+            Ok(Some(item)) => {
+                if warn_invalid && filename_id(path) != Some(item.id()) {
+                    warn(format!(
+                        "{}: the filename does not match the id '{}'",
+                        path.display(),
+                        item.id()
+                    ));
+                }
+                self.items.push(item);
+                Some(self.items.len() - 1)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                if warn_invalid {
+                    warn(format!("skipped {}: {e}", path.display()));
+                }
+                self.invalid.push((path.to_path_buf(), e));
+                None
+            }
+        }
     }
 
+    /// Parses every file in `places` that is not loaded yet.
+    pub fn load_places(&mut self, places: &[Place], warn_invalid: bool) {
+        for n in 0..self.index.len() {
+            let (path, place) = self.index[n].clone();
+            if places.contains(&place) && !self.seen.contains(&path) {
+                self.load(&path, place, warn_invalid);
+            }
+        }
+    }
+
+    /// The number of files in the store, for the choice of the ID length.
+    pub fn file_count(&self) -> usize {
+        self.index.len()
+    }
+
+    /// Whether an item has the ID, by filename or, for the parsed items, by frontmatter.
     pub fn has_id(&self, id: &str) -> bool {
-        self.items.iter().any(|i| i.id() == id)
+        self.index.iter().any(|(p, _)| filename_id(p) == Some(id))
+            || self.items.iter().any(|i| i.id() == id)
     }
 
     /// Writes an item atomically and moves the file to match the frontmatter.
@@ -295,7 +334,29 @@ impl Lock {
 
 #[cfg(test)]
 mod tests {
-    use super::slug;
+    use super::{Store, slug};
+    use crate::item::Place;
+
+    #[test]
+    fn index_without_parsing() {
+        let dir = tempfile::tempdir().unwrap();
+        // Invalid items: parsing one adds it to `invalid`.
+        let bad = "---\nid: \"x\"\nkind: what\n---\n# x\n";
+        for (sub, id) in [("", "aaaa"), (".archive", "bbbb"), (".trash", "cccc")] {
+            std::fs::create_dir_all(dir.path().join(sub)).unwrap();
+            std::fs::write(
+                dir.path().join(sub).join(format!("20261016-{id}-x.md")),
+                bad,
+            )
+            .unwrap();
+        }
+        let store = Store::open(dir.path(), &[], false).unwrap();
+        assert!(store.items.is_empty() && store.invalid.is_empty());
+        assert_eq!(store.file_count(), 3);
+        assert!(store.has_id("bbbb") && store.has_id("cccc") && !store.has_id("dddd"));
+        let store = Store::open(dir.path(), &[Place::Root], false).unwrap();
+        assert!(store.invalid.len() == 1 && store.has_id("aaaa"));
+    }
 
     #[test]
     fn slugs() {

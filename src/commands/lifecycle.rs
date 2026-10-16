@@ -43,7 +43,7 @@ impl Lifecycle {
 
 pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
     let mut tx = app.begin()?;
-    let idx = resolve_ids(&tx.store, &c.id, op == Lifecycle::Restore)?;
+    let idx = resolve_ids(&mut tx.store, &c.id, op == Lifecycle::Restore)?;
     if op == Lifecycle::Trash {
         let what = if idx.len() == 1 {
             "this item".to_string()

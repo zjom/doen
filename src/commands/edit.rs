@@ -7,8 +7,8 @@ use crate::ids;
 use crate::item::{Item, Kind, Status};
 
 pub fn run(app: &App, c: EditCmd) -> Result<()> {
-    let store = app.store()?;
-    let n = ids::resolve(&store, &c.id, false)?;
+    let mut store = app.store(&[])?;
+    let n = ids::resolve(&mut store, &c.id, false)?;
     let id = store.items[n].id().to_string();
     edit_item(app, &id, false)
 }
@@ -16,8 +16,8 @@ pub fn run(app: &App, c: EditCmd) -> Result<()> {
 /// Edits the item with the ID `id`. The lock is held only while doen saves the file.
 pub fn edit_item(app: &App, id: &str, quiet: bool) -> Result<()> {
     editor::require_terminal()?;
-    let store = app.store()?;
-    let n = ids::resolve(&store, id, false)?;
+    let mut store = app.store(&[])?;
+    let n = ids::resolve(&mut store, id, false)?;
     let mut orig_item = store.items[n].clone();
     let mut orig_text = std::fs::read_to_string(&orig_item.path)?;
     let tmp = tempfile::Builder::new()
@@ -40,19 +40,16 @@ pub fn edit_item(app: &App, id: &str, quiet: bool) -> Result<()> {
             }
         };
         let mut tx = app.begin()?;
-        let n = ids::resolve(&tx.store, id, false)?;
+        let n = ids::resolve(&mut tx.store, id, false)?;
         let current = std::fs::read_to_string(&tx.store.items[n].path)?;
         if current != orig_text {
             drop(tx);
             edit_again("the file changed while the editor was open")?;
             // The next save compares with the new version of the file.
             orig_text = current;
-            orig_item = app
-                .store()?
-                .items
-                .into_iter()
-                .find(|i| i.id() == id)
-                .ok_or_else(|| general("the item is gone"))?;
+            let mut store = app.store(&[])?;
+            let n = ids::resolve(&mut store, id, false).map_err(|_| general("the item is gone"))?;
+            orig_item = store.items.swap_remove(n);
             continue;
         }
         let mut item = edited;

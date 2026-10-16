@@ -1,6 +1,8 @@
+use std::path::PathBuf;
+
 use crate::error::{Error, Result};
 use crate::item::Place;
-use crate::store::Store;
+use crate::store::{Store, filename_id};
 
 const ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -19,30 +21,68 @@ pub fn generate(store: &Store) -> String {
 
 /// Resolves an ID or a unique prefix of 2 or more characters to an item index.
 /// Items in the trash resolve only if `trash` is true.
-pub fn resolve(store: &Store, arg: &str, trash: bool) -> Result<usize> {
+///
+/// Candidates are found by the IDs in the filenames of all places, and only those files are
+/// parsed. If no filename matches, all places are parsed, for files named after another ID.
+pub fn resolve(store: &mut Store, arg: &str, trash: bool) -> Result<usize> {
     let arg = arg.to_ascii_lowercase();
-    let candidates = || {
-        store
-            .items
-            .iter()
-            .enumerate()
-            .filter(move |(_, i)| trash || i.place != Place::Trash && i.meta.trashed.is_none())
-    };
-    let exact: Vec<usize> = candidates()
-        .filter(|(_, i)| i.id() == arg)
-        .map(|(n, _)| n)
-        .collect();
-    let matches = if !exact.is_empty() {
-        exact
-    } else if arg.len() >= 2 {
-        candidates()
-            .filter(|(_, i)| i.id().starts_with(&arg))
-            .map(|(n, _)| n)
-            .collect()
+    let places: &[Place] = if trash {
+        &Place::ALL
     } else {
-        vec![]
+        &[Place::Root, Place::Archive]
     };
-    match matches.as_slice() {
+    let named: Vec<(PathBuf, Place)> = store
+        .index
+        .iter()
+        .filter(|(p, place)| {
+            places.contains(place)
+                && filename_id(p)
+                    .is_some_and(|id| id == arg || arg.len() >= 2 && id.starts_with(&arg))
+        })
+        .cloned()
+        .collect();
+    let loaded: Vec<usize> = named
+        .iter()
+        .filter_map(|(p, place)| store.load(p, *place, false))
+        .collect();
+    let found = matches(store, &arg, trash, loaded.into_iter());
+    if !found.is_empty() {
+        return pick(store, &arg, found);
+    }
+    store.load_places(places, false);
+    let found = matches(store, &arg, trash, 0..store.items.len());
+    pick(store, &arg, found)
+}
+
+/// The items among `candidates` with the ID `arg`, or else with the prefix `arg`.
+fn matches(
+    store: &Store,
+    arg: &str,
+    trash: bool,
+    candidates: impl Iterator<Item = usize>,
+) -> Vec<usize> {
+    let candidates: Vec<usize> = candidates
+        .filter(|&n| {
+            let i = &store.items[n];
+            trash || i.place != Place::Trash && i.meta.trashed.is_none()
+        })
+        .collect();
+    let exact: Vec<usize> = candidates
+        .iter()
+        .copied()
+        .filter(|&n| store.items[n].id() == arg)
+        .collect();
+    if !exact.is_empty() || arg.len() < 2 {
+        return exact;
+    }
+    candidates
+        .into_iter()
+        .filter(|&n| store.items[n].id().starts_with(arg))
+        .collect()
+}
+
+fn pick(store: &Store, arg: &str, found: Vec<usize>) -> Result<usize> {
+    match found.as_slice() {
         [n] => Ok(*n),
         [] => Err(Error::NotFound(format!("no item with the id '{arg}'"))),
         many => {
@@ -59,7 +99,7 @@ pub fn resolve(store: &Store, arg: &str, trash: bool) -> Result<usize> {
 }
 
 /// Resolves every ID before any change. Duplicate arguments resolve once.
-pub fn resolve_all(store: &Store, args: &[String], trash: bool) -> Result<Vec<usize>> {
+pub fn resolve_all(store: &mut Store, args: &[String], trash: bool) -> Result<Vec<usize>> {
     let mut out = vec![];
     for a in args {
         let n = resolve(store, a, trash)?;

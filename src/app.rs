@@ -6,7 +6,7 @@ use crate::config::{ColorMode, Config, store_path};
 use crate::dates::Clock;
 use crate::error::{Error, Result};
 use crate::git;
-use crate::item::Item;
+use crate::item::{Item, Place};
 use crate::store::{Change, Changes, Lock, Store, require_root};
 use crate::term;
 
@@ -37,15 +37,23 @@ impl App {
         })
     }
 
-    pub fn store(&self) -> Result<Store> {
-        Store::open(&self.root, true)
+    /// Opens the store and parses the items in `places`. Other items are parsed when an ID
+    /// resolves to them.
+    pub fn store(&self, places: &[Place]) -> Result<Store> {
+        Store::open(&self.root, places, true)
     }
 
     /// Takes the lock, loads the store and purges old trash.
     pub fn begin(&self) -> Result<Tx> {
+        self.begin_with(&[])
+    }
+
+    /// Like `begin`, and parses the items in `places` too.
+    pub fn begin_with(&self, places: &[Place]) -> Result<Tx> {
         require_root(&self.root)?;
         let lock = Lock::acquire(&self.root)?;
-        let mut store = self.store()?;
+        let mut store = self.store(&[Place::Trash])?;
+        store.load_places(places, true);
         let mut changes = Changes::default();
         for item in store.purge_trash(self.clock.today, self.cfg.trash_days, &mut changes)? {
             eprintln!("doen: deleted permanently from the trash: {}", item.label());

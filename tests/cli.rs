@@ -565,3 +565,119 @@ fn git_autocommit() {
     assert!(git(&["status", "--porcelain"]).contains("A  unrelated.txt"));
     assert!(git(&["ls-files"]).contains(&format!(".archive/20261016-{id}-call-bank.md")));
 }
+
+/// Writes an item file by hand: `dir` is "", ".archive" or ".trash", `extra` more frontmatter.
+fn write_item(e: &Env, dir: &str, name_id: &str, id: &str, kind: &str, extra: &str, title: &str) {
+    let d = e.store().join(dir);
+    fs::create_dir_all(&d).unwrap();
+    fs::write(
+        d.join(format!("20261016-{name_id}-x.md")),
+        format!(
+            "---\nid: \"{id}\"\nkind: {kind}\ncreated: {NOW}\ndate: 2026-10-16\n{extra}---\n# {title}\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn loads_only_the_places_needed() {
+    let e = Env::new();
+    let done = "archived: 2026-10-16\nstatus:\n  - date: 2026-10-16\n    status: done\n";
+    write_item(
+        &e,
+        "",
+        "ra01",
+        "ra01",
+        "todo",
+        "tags: [root]\n",
+        "[ ] root todo",
+    );
+    write_item(
+        &e,
+        ".archive",
+        "aa01",
+        "aa01",
+        "todo",
+        &format!("tags: [arch]\n{done}"),
+        "[x] old",
+    );
+    write_item(
+        &e,
+        ".trash",
+        "tt01",
+        "tt01",
+        "note",
+        "tags: [\"bad tag\"]\ntrashed: 2026-10-15\n",
+        "gone",
+    );
+    // IDs that share a prefix across places.
+    write_item(&e, "", "zz01", "zz01", "note", "", "zz root");
+    write_item(
+        &e,
+        ".archive",
+        "zz02",
+        "zz02",
+        "todo",
+        done,
+        "[x] zz archived",
+    );
+    write_item(
+        &e,
+        ".trash",
+        "yy01",
+        "yy01",
+        "note",
+        "trashed: 2026-10-15\n",
+        "yy trashed",
+    );
+    write_item(&e, "", "yy02", "yy02", "todo", "", "[ ] yy root");
+    // A filename that does not match the ID.
+    write_item(&e, "", "mm00", "mm01", "note", "", "mismatched");
+
+    let ids = |args: &[&str]| -> Vec<String> {
+        let mut v: Vec<String> = e.ok(args).lines().map(String::from).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(ids(&["ls", "--ids"]), ["mm01", "ra01", "yy02", "zz01"]);
+    assert_eq!(
+        ids(&["ls", "-a", "--ids"]),
+        ["aa01", "mm01", "ra01", "yy02", "zz01", "zz02"]
+    );
+    assert_eq!(ids(&["ls", "-s", "done", "--ids"]), ["aa01", "zz02"]);
+    assert_eq!(ids(&["ls", "--archived", "--ids"]), ["aa01", "zz02"]);
+    assert_eq!(ids(&["ls", "--trashed", "--ids"]), ["tt01", "yy01"]);
+    let tags = e.ok(&["tags"]);
+    assert!(tags.contains("root") && !tags.contains("arch"), "{tags}");
+    let tags = e.ok(&["tags", "--all"]);
+    assert!(tags.contains("arch") && !tags.contains("bad"), "{tags}");
+
+    // `check` sees every place.
+    let o = e.run(&["check"]);
+    assert!(
+        o.stdout.contains("mm00") && o.stdout.contains("invalid tag"),
+        "{}",
+        o.stdout
+    );
+
+    assert!(e.ok(&["show", "aa01"]).contains("old"));
+    assert!(e.ok(&["show", "tt01"]).contains("gone"));
+    assert!(e.ok(&["show", "mm01"]).contains("mismatched"));
+    assert_eq!(e.run(&["done", "tt01"]).code, 3);
+    let o = e.run(&["show", "zz"]);
+    assert!(
+        o.code == 3 && o.stderr.contains("ambiguous"),
+        "{}",
+        o.stderr
+    );
+    assert!(e.run(&["show", "yy"]).stderr.contains("ambiguous"));
+    // Without the trash, the prefix is unique.
+    e.ok(&["done", "yy"]);
+    assert_eq!(place_of(&e.file("yy02")), ".archive");
+    e.ok(&["unarchive", "aa01"]);
+    assert_eq!(place_of(&e.file("aa01")), "store");
+    e.ok(&["restore", "tt01"]);
+    assert_eq!(place_of(&e.file("tt01")), "store");
+    // New IDs avoid unparsed files in every place.
+    assert_eq!(e.run(&["note", "new"]).code, 0);
+}

@@ -75,6 +75,8 @@ pub enum Place {
 }
 
 impl Place {
+    pub const ALL: [Place; 3] = [Place::Root, Place::Archive, Place::Trash];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Place::Root => "root",

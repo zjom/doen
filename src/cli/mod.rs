@@ -86,8 +86,8 @@ fn is_id(globals: &[OsString], word: &str) -> bool {
         Globals::try_parse_from(std::iter::once(OsString::from("doen")).chain(globals.to_vec()))
             .ok()
             .and_then(|g| g.global.dir);
-    Store::open(&store_path(dir.as_deref()), false)
-        .is_ok_and(|s| ids::resolve(&s, word, true).is_ok())
+    Store::open(&store_path(dir.as_deref()), &[], false)
+        .is_ok_and(|mut s| ids::resolve(&mut s, word, true).is_ok())
 }
 
 fn help(word: Option<&str>) -> Result<()> {

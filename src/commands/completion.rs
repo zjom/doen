@@ -27,13 +27,13 @@ const DATES: &str =
 pub fn data(app: &App, what: &str) -> Result<()> {
     match what {
         "ids" => {
-            let store = app.store()?;
-            for i in store.items.iter().filter(|i| i.place != Place::Trash) {
+            let store = app.store(&[Place::Root, Place::Archive])?;
+            for i in &store.items {
                 println!("{}\t{}", i.id(), i.title());
             }
         }
         "tags" => {
-            let store = app.store()?;
+            let store = app.store(&[Place::Root, Place::Archive])?;
             let tags: BTreeSet<&str> = store
                 .items
                 .iter()

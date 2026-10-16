@@ -6,8 +6,8 @@ use crate::item::Item;
 use crate::output::{print_machine, summary};
 
 pub fn show(app: &App, c: ShowCmd) -> Result<()> {
-    let store = app.store()?;
-    let idx = resolve_ids(&store, &c.id, true)?;
+    let mut store = app.store(&[])?;
+    let idx = resolve_ids(&mut store, &c.id, true)?;
     let items: Vec<&Item> = idx.iter().map(|&n| &store.items[n]).collect();
     if print_machine(&items, c.format.format()) {
         return Ok(());

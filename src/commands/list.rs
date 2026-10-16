@@ -91,7 +91,7 @@ fn print(app: &App, mut groups: Vec<(&str, Vec<&Item>)>, output: &OutputArgs) ->
 
 /// Runs a list query and prints the result. Returns the number of items.
 fn list(app: &App, q: &Query, output: &OutputArgs) -> Result<usize> {
-    let store = app.store()?;
+    let store = app.store(&q.places)?;
     let matching = store.items.iter().filter(|i| q.accepts(i, &app.clock));
     let (todos, notes) = select(
         matching,
@@ -143,7 +143,7 @@ pub fn today(app: &App, c: TodayCmd) -> Result<()> {
         tags: TagFilter::new(&c.tags.tag, &c.tags.exclude_tag).map_err(usage)?,
         ..Query::default()
     };
-    let store = app.store()?;
+    let store = app.store(&q.places)?;
     let today = app.clock.today;
     let open_todo = |i: &&Item| i.meta.current_status() == Some(Status::Open);
     let base: Vec<&Item> = store

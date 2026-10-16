@@ -5,16 +5,17 @@ use crate::app::App;
 use crate::cli::args::CheckCmd;
 use crate::error::{Error, Result};
 use crate::ids;
+use crate::item::Place;
 use crate::store::{Change, Changes, Store, filename, filename_id};
 
 pub fn run(app: &App, c: CheckCmd) -> Result<()> {
     let unfixed = if c.fix {
-        let mut tx = app.begin()?;
+        let mut tx = app.begin_with(&Place::ALL)?;
         let unfixed = report(&mut tx.store, Some(&mut tx.changes))?;
         tx.finish(app)?;
         unfixed
     } else {
-        report(&mut Store::open(&app.root, false)?, None)?
+        report(&mut Store::open(&app.root, &Place::ALL, false)?, None)?
     };
     match unfixed {
         0 => Ok(()),
