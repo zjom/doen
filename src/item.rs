@@ -289,16 +289,21 @@ impl Item {
             return Ok(None);
         };
         let (doc, body) = parsed?;
-        let Some(meta) = Meta::parse(&doc, &body)? else {
+        if doc.get("id").is_none() {
             return Ok(None);
-        };
-        Ok(Some(Item {
-            path: path.to_path_buf(),
+        }
+        Item::new(path.to_path_buf(), place, doc, body).map(Some)
+    }
+
+    pub fn new(path: PathBuf, place: Place, doc: Doc, body: String) -> Result<Item, String> {
+        let meta = Meta::parse(&doc, &body)?.ok_or("missing 'id'")?;
+        Ok(Item {
+            path,
             place,
             doc,
             body,
             meta,
-        }))
+        })
     }
 
     pub fn id(&self) -> &str {
@@ -314,6 +319,17 @@ impl Item {
             .heading
             .as_ref()
             .map_or("(untitled)", |h| h.title.as_str())
+    }
+
+    pub fn has_title(&self) -> bool {
+        self.meta
+            .heading
+            .as_ref()
+            .is_some_and(|h| !h.title.is_empty())
+    }
+
+    pub fn label(&self) -> String {
+        format!("{}  {}", self.id(), self.title())
     }
 
     pub fn render(&self) -> String {

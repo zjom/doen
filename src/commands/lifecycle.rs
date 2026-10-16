@@ -1,8 +1,9 @@
 use crate::app::App;
 use crate::cli::args::IdsCmd;
-use crate::commands::{item_line, resolve_ids};
+use crate::commands::resolve_ids;
 use crate::error::{Result, warn};
 use crate::item::{Item, Place};
+use crate::store::{self, Change};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Lifecycle {
@@ -45,7 +46,7 @@ pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
     let idx = resolve_ids(&tx.store, &c.id, op == Lifecycle::Restore)?;
     if op == Lifecycle::Trash {
         for &n in &idx {
-            eprintln!("  {}", item_line(&tx.store.items[n]));
+            eprintln!("  {}", tx.store.items[n].label());
         }
         let what = if idx.len() == 1 {
             "this item".to_string()
@@ -77,15 +78,13 @@ pub fn empty_trash(app: &App) -> Result<()> {
         return tx.finish(app);
     }
     for &n in &trashed {
-        eprintln!("  {}", item_line(&tx.store.items[n]));
+        eprintln!("  {}", tx.store.items[n].label());
     }
     app.confirm(&format!("Delete {} items permanently?", trashed.len()))?;
     for &n in &trashed {
-        let item = tx.store.items[n].clone();
-        tx.store.delete(&item, &mut tx.changes)?;
-        tx.changes
-            .lines
-            .push(format!("deleted  {}  {}", item.id(), item.title()));
+        let item = &tx.store.items[n];
+        store::delete(item, &mut tx.changes)?;
+        tx.changes.shown.push(Change::new("deleted", item));
     }
     tx.finish(app)
 }

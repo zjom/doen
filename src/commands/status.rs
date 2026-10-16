@@ -2,12 +2,12 @@
 
 use chrono::NaiveDate;
 
-use crate::app::{App, Tx};
+use crate::app::App;
 use crate::cli::args::StatusCmd;
 use crate::commands::resolve_ids;
 use crate::dates::parse_date;
 use crate::error::{Result, usage, warn};
-use crate::item::{Kind, Status};
+use crate::item::{Item, Kind, Status};
 
 pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
     let verb = match status {
@@ -47,20 +47,15 @@ pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
             warn(format!("{} is already {}", item.id(), status.as_str()));
             continue;
         }
-        apply(app, &mut tx, n, status, on);
+        apply(app, &mut tx.store.items[n], status, on);
         tx.save(n, verb)?;
     }
     tx.finish(app)
 }
 
-/// Adds a status entry and archives or unarchives the todo. Shared with `doen edit`.
-pub fn apply(app: &App, tx: &mut Tx, n: usize, status: Status, on: NaiveDate) {
-    let item = &mut tx.store.items[n];
+/// Adds a status entry and archives or unarchives the todo.
+pub fn apply(app: &App, item: &mut Item, status: Status, on: NaiveDate) {
     item.push_status(on, status);
-    apply_archive(app, item, status, on);
-}
-
-pub fn apply_archive(app: &App, item: &mut crate::item::Item, status: Status, on: NaiveDate) {
     match status {
         Status::Open => item.set_date("archived", None),
         _ if app.cfg.archive_closed && item.meta.archived.is_none() => {

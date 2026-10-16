@@ -33,10 +33,10 @@ pub fn commit(root: &Path, changes: &Changes) {
         return;
     }
     let mut lines: Vec<String> = changes
-        .quiet_lines
+        .quiet
         .iter()
-        .chain(&changes.lines)
-        .map(|l| format!("doen: {}", l.splitn(3, "  ").collect::<Vec<_>>().join(" ")))
+        .chain(&changes.shown)
+        .map(|c| format!("doen: {} {} {}", c.verb, c.id, c.title))
         .collect();
     if lines.is_empty() {
         lines.push("doen: update".into());

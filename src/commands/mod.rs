@@ -14,7 +14,6 @@ use std::io::Read;
 
 use crate::error::{Result, usage};
 use crate::ids;
-use crate::item::Item;
 use crate::store::Store;
 
 /// Resolves ID arguments. The argument `-` reads whitespace-separated IDs from stdin.
@@ -35,8 +34,4 @@ pub fn resolve_ids(store: &Store, args: &[String], trash: bool) -> Result<Vec<us
         return Err(usage("no IDs given"));
     }
     ids::resolve_all(store, &expanded, trash)
-}
-
-pub fn item_line(item: &Item) -> String {
-    format!("{}  {}", item.id(), item.title())
 }

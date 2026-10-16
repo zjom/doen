@@ -1,6 +1,7 @@
 //! `note` and `todo`.
 
 use std::io::Read;
+use std::path::PathBuf;
 
 use chrono::{SubsecRound, Timelike};
 
@@ -13,7 +14,7 @@ use crate::error::{Result, general, usage, warn};
 use crate::frontmatter::{Doc, Value};
 use crate::ids;
 use crate::item::{Item, Kind, Place};
-use crate::store::filename;
+use crate::store::{Change, filename};
 use crate::tags;
 use crate::template::{self, build_body};
 
@@ -94,11 +95,7 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
         kind,
         content.as_deref(),
     );
-    let text = format!("{}{body}", doc.render());
-    let placeholder = app.root.join("new.md");
-    let mut item = Item::parse(&placeholder, Place::Root, &text)
-        .map_err(general)?
-        .ok_or_else(|| general("internal error: new item has no id"))?;
+    let mut item = Item::new(PathBuf::new(), Place::Root, doc, body).map_err(general)?;
 
     if title.is_empty() {
         // Release the lock while the editor is open.
@@ -111,16 +108,11 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
         }
     }
     item.path = app.root.join(filename(&item));
-    tx.store.write(&mut item, &mut tx.changes)?;
-    tx.changes.quiet_lines.push(format!(
-        "{}  {}  {}",
-        kind.as_str(),
-        item.id(),
-        item.title()
-    ));
-    println!("{}", item.id());
     let id = item.id().to_string();
+    tx.changes.quiet.push(Change::new(kind.as_str(), &item));
     tx.store.items.push(item);
+    tx.store.write(tx.store.items.len() - 1, &mut tx.changes)?;
+    println!("{id}");
     tx.finish(app)?;
     if c.edit {
         edit_item(app, &id, true)?;
@@ -139,7 +131,7 @@ fn edit_new(app: &App, item: Item) -> Result<Item> {
         editor::open(app, tmp.path())?;
         let text = std::fs::read_to_string(tmp.path())?;
         match editor::validate(&item, &text) {
-            Ok(new) if new.meta.heading.as_ref().is_none_or(|h| h.title.is_empty()) => {
+            Ok(new) if !new.has_title() => {
                 return Err(general("the title is empty: no item created"));
             }
             Ok(mut new) => {

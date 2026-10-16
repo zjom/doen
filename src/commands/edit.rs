@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::cli::args::EditCmd;
-use crate::commands::status::apply_archive;
+use crate::commands::status;
 use crate::editor::{self, edit_again, validate};
 use crate::error::{Result, general, warn};
 use crate::ids;
@@ -62,8 +62,7 @@ pub fn edit_item(app: &App, id: &str, quiet: bool) -> Result<()> {
         tx.store.items[n] = item;
         tx.save(n, "edit")?;
         if quiet {
-            let lines = std::mem::take(&mut tx.changes.lines);
-            tx.changes.quiet_lines.extend(lines);
+            tx.changes.hush();
         }
         return tx.finish(app);
     }
@@ -83,9 +82,7 @@ pub fn reconcile(app: &App, before: &Item, after: &mut Item) {
         && let Some(c) = cb_after
         && after.meta.current_status() != Some(Status::from_checkbox(c))
     {
-        let (status, today) = (Status::from_checkbox(c), app.clock.today);
-        after.push_status(today, status);
-        apply_archive(app, after, status, today);
+        status::apply(app, after, Status::from_checkbox(c), app.clock.today);
         return;
     }
     if log_changed && after.checkbox_mismatch().is_some() {

@@ -15,13 +15,33 @@ pub struct Store {
     pub invalid: Vec<(PathBuf, String)>,
 }
 
-/// The paths and output lines of a mutating command.
+/// One change to one item: an output line `verb  id  title` and a line of the commit message.
+pub struct Change {
+    pub verb: String,
+    pub id: String,
+    pub title: String,
+}
+
+impl Change {
+    pub fn new(verb: impl Into<String>, item: &Item) -> Change {
+        Change {
+            verb: verb.into(),
+            id: item.id().into(),
+            title: item.title().into(),
+        }
+    }
+
+    pub fn line(&self) -> String {
+        format!("{}  {}  {}", self.verb, self.id, self.title)
+    }
+}
+
 #[derive(Default)]
 pub struct Changes {
-    /// Output lines on stdout. Each line is also a line of the commit message.
-    pub lines: Vec<String>,
-    /// Lines for the commit message only.
-    pub quiet_lines: Vec<String>,
+    /// Printed on stdout and committed.
+    pub shown: Vec<Change>,
+    /// Committed only.
+    pub quiet: Vec<Change>,
     pub paths: Vec<PathBuf>,
 }
 
@@ -30,6 +50,11 @@ impl Changes {
         if !self.paths.iter().any(|x| x == p) {
             self.paths.push(p.to_path_buf());
         }
+    }
+
+    pub fn hush(&mut self) {
+        let shown = std::mem::take(&mut self.shown);
+        self.quiet.extend(shown);
     }
 }
 
@@ -155,15 +180,15 @@ impl Store {
     }
 
     /// Writes an item atomically and moves the file to match the frontmatter.
-    pub fn write(&self, item: &mut Item, changes: &mut Changes) -> Result<()> {
+    pub fn write(&mut self, n: usize, changes: &mut Changes) -> Result<()> {
+        let item = &mut self.items[n];
         let place = item.meta.expected_place();
         let dir = self.root.join(place.dir());
         fs::create_dir_all(&dir)?;
         let name = item
             .path
             .file_name()
-            .ok_or_else(|| general("invalid path"))?
-            .to_owned();
+            .ok_or_else(|| general("invalid path"))?;
         let target = dir.join(name);
         if target != item.path && target.exists() {
             return Err(general(format!(
@@ -171,7 +196,7 @@ impl Store {
                 target.display()
             )));
         }
-        self.atomic_write(&target, &item.render())?;
+        atomic_write(&self.root, &target, &item.render())?;
         changes.touch(&target);
         if target != item.path {
             if item.path.exists() {
@@ -184,19 +209,9 @@ impl Store {
         Ok(())
     }
 
-    pub fn atomic_write(&self, target: &Path, content: &str) -> Result<()> {
-        let mut tmp = tempfile::Builder::new()
-            .prefix(".doen-tmp-")
-            .tempfile_in(&self.root)?;
-        tmp.write_all(content.as_bytes())?;
-        tmp.as_file().sync_all()?;
-        tmp.persist(target)
-            .map_err(|e| general(format!("{}: {}", target.display(), e.error)))?;
-        Ok(())
-    }
-
     /// Renames an item file inside its directory.
-    pub fn rename(&self, item: &mut Item, new_name: &str, changes: &mut Changes) -> Result<()> {
+    pub fn rename(&mut self, n: usize, new_name: &str, changes: &mut Changes) -> Result<()> {
+        let item = &mut self.items[n];
         let target = item.path.with_file_name(new_name);
         if target.exists() {
             return Err(general(format!(
@@ -211,42 +226,45 @@ impl Store {
         Ok(())
     }
 
-    pub fn delete(&self, item: &Item, changes: &mut Changes) -> Result<()> {
-        fs::remove_file(&item.path)?;
-        changes.touch(&item.path);
-        Ok(())
-    }
-
     /// Deletes the items whose `trashed` date is more than `trash_days` days in the past.
     pub fn purge_trash(
         &mut self,
         today: chrono::NaiveDate,
         trash_days: i64,
         changes: &mut Changes,
-    ) -> Result<()> {
+    ) -> Result<Vec<Item>> {
         if trash_days <= 0 {
-            return Ok(());
+            return Ok(vec![]);
         }
-        let mut keep = vec![];
-        for item in std::mem::take(&mut self.items) {
-            match item.meta.trashed {
-                Some(t) if (today - t).num_days() > trash_days => {
-                    self.delete(&item, changes)?;
-                    eprintln!(
-                        "doen: deleted permanently from the trash: {}  {}",
-                        item.id(),
-                        item.title()
-                    );
-                    changes
-                        .quiet_lines
-                        .push(format!("purge  {}  {}", item.id(), item.title()));
-                }
-                _ => keep.push(item),
-            }
-        }
+        let (purged, keep) = std::mem::take(&mut self.items).into_iter().partition(|i| {
+            i.meta
+                .trashed
+                .is_some_and(|t| (today - t).num_days() > trash_days)
+        });
         self.items = keep;
-        Ok(())
+        for item in &purged {
+            delete(item, changes)?;
+        }
+        Ok(purged)
     }
+}
+
+pub fn delete(item: &Item, changes: &mut Changes) -> Result<()> {
+    fs::remove_file(&item.path)?;
+    changes.touch(&item.path);
+    Ok(())
+}
+
+/// Writes through a temporary file in `root`, so that a reader never sees a partial file.
+fn atomic_write(root: &Path, target: &Path, content: &str) -> Result<()> {
+    let mut tmp = tempfile::Builder::new()
+        .prefix(".doen-tmp-")
+        .tempfile_in(root)?;
+    tmp.write_all(content.as_bytes())?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(target)
+        .map_err(|e| general(format!("{}: {}", target.display(), e.error)))?;
+    Ok(())
 }
 
 /// An exclusive lock on `<store>/.doen.lock`.

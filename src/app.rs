@@ -6,7 +6,7 @@ use crate::config::{ColorMode, Config, store_path};
 use crate::dates::Clock;
 use crate::error::{Error, Result};
 use crate::git;
-use crate::store::{Changes, Lock, Store, require_root};
+use crate::store::{Change, Changes, Lock, Store, require_root};
 use crate::term;
 
 pub struct App {
@@ -47,7 +47,10 @@ impl App {
         let lock = Lock::acquire(&self.root)?;
         let mut store = self.store()?;
         let mut changes = Changes::default();
-        store.purge_trash(self.clock.today, self.cfg.trash_days, &mut changes)?;
+        for item in store.purge_trash(self.clock.today, self.cfg.trash_days, &mut changes)? {
+            eprintln!("doen: deleted permanently from the trash: {}", item.label());
+            changes.quiet.push(Change::new("purge", &item));
+        }
         Ok(Tx {
             store,
             changes,
@@ -88,20 +91,17 @@ pub struct Tx {
 impl Tx {
     /// Writes an item and records the output line `verb  id  title`.
     pub fn save(&mut self, n: usize, verb: &str) -> Result<()> {
-        let mut item = self.store.items[n].clone();
-        self.store.write(&mut item, &mut self.changes)?;
-        self.store.items[n] = item;
-        let item = &self.store.items[n];
+        self.store.write(n, &mut self.changes)?;
         self.changes
-            .lines
-            .push(format!("{verb}  {}  {}", item.id(), item.title()));
+            .shown
+            .push(Change::new(verb, &self.store.items[n]));
         Ok(())
     }
 
     /// Prints the output lines and makes the Git commit.
     pub fn finish(self, app: &App) -> Result<()> {
-        for line in &self.changes.lines {
-            println!("{line}");
+        for c in &self.changes.shown {
+            println!("{}", c.line());
         }
         if app.cfg.git_autocommit {
             git::commit(&app.root, &self.changes);
