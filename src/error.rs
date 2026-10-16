@@ -12,8 +12,6 @@ pub enum Error {
     NotFound(String),
     /// Exit code 4: the user declined, or no terminal was available for a prompt.
     Declined(String),
-    /// Exit code 5: `grep` found no matches. Prints nothing.
-    NoMatches,
     /// Exit with a code and print nothing more (the message was already printed).
     Silent(i32),
 }
@@ -27,7 +25,6 @@ impl Error {
             Error::Usage(_) => 2,
             Error::NotFound(_) => 3,
             Error::Declined(_) => 4,
-            Error::NoMatches => 5,
             Error::Silent(c) => *c,
         }
     }
@@ -39,7 +36,7 @@ impl fmt::Display for Error {
             Error::General(m) | Error::Usage(m) | Error::NotFound(m) | Error::Declined(m) => {
                 f.write_str(m)
             }
-            Error::NoMatches | Error::Silent(_) => Ok(()),
+            Error::Silent(_) => Ok(()),
         }
     }
 }

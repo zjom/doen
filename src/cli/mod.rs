@@ -10,7 +10,7 @@ use crate::commands::lifecycle::{self, Lifecycle};
 use crate::commands::meta::{self, DateField};
 use crate::commands::{check, completion, create, edit, init, list, show, status, tags};
 use crate::config::store_path;
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, usage};
 use crate::ids;
 use crate::item::{Kind, Status};
 use crate::store::Store;
@@ -57,17 +57,14 @@ fn normalize(mut argv: Vec<OsString>) -> Result<Vec<OsString>> {
         Some(w) => match resolve::resolve(w) {
             Resolved::Command(n) => argv[i] = n.into(),
             Resolved::Ambiguous(c) => {
-                return Err(Error::Usage(format!(
-                    "'{w}' is ambiguous: {}",
-                    c.join(", ")
-                )));
+                return Err(usage(format!("'{w}' is ambiguous: {}", c.join(", "))));
             }
             Resolved::Unknown => {
                 let mut msg = format!("unknown command '{w}'");
                 if is_id(&argv[..i], w) {
                     msg.push_str(&format!(". To show the item, run 'doen show {w}'"));
                 }
-                return Err(Error::Usage(msg));
+                return Err(usage(msg));
             }
         },
     }
@@ -100,7 +97,7 @@ fn help(word: Option<&str>) -> Result<()> {
     };
     match resolve::resolve(w) {
         Resolved::Command(n) => parse::<Cli>(vec![n.into(), "--help".into()]).map(|_| ()),
-        _ => Err(Error::Usage(format!("unknown command '{w}'"))),
+        _ => Err(usage(format!("unknown command '{w}'"))),
     }
 }
 

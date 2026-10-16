@@ -53,18 +53,13 @@ fn paint_row(app: &App, row: &str) -> String {
         return row.to_string();
     }
     let mut out = String::new();
-    let mut run = String::new();
-    let mut solid = None;
-    for c in row.chars() {
-        let s = c == '█';
-        if solid != Some(s) && !run.is_empty() {
-            out.push_str(&app.paint(if solid == Some(true) { "1;36" } else { "2" }, &run));
-            run.clear();
-        }
-        solid = Some(s);
-        run.push(c);
+    let mut rest = row;
+    while let Some(first) = rest.chars().next() {
+        let solid = first == '█';
+        let end = rest.find(|c| (c == '█') != solid).unwrap_or(rest.len());
+        out.push_str(&app.paint(if solid { "1;36" } else { "2" }, &rest[..end]));
+        rest = &rest[end..];
     }
-    out.push_str(&app.paint(if solid == Some(true) { "1;36" } else { "2" }, &run));
     out
 }
 

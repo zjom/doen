@@ -50,7 +50,7 @@ pub fn resolve(store: &Store, arg: &str, trash: bool) -> Result<usize> {
         many => {
             let list: Vec<String> = many
                 .iter()
-                .map(|&n| format!("  {}  {}", store.items[n].id(), store.items[n].title()))
+                .map(|&n| format!("  {}", store.items[n].label()))
                 .collect();
             Err(Error::NotFound(format!(
                 "the id '{arg}' is ambiguous:\n{}",

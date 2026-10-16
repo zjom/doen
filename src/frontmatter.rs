@@ -119,8 +119,7 @@ impl Doc {
     pub fn parse(fm: &str) -> Result<Doc, String> {
         let mut doc = Doc::empty();
         let mut pending = String::new();
-        let mut current: Option<(String, String)> = None; // (lead, body)
-        let mut raw_blocks = vec![];
+        let mut current: Option<(String, String)> = None;
         for line in fm.split_inclusive('\n') {
             let line = if line.ends_with('\n') {
                 line.to_string()
@@ -132,8 +131,8 @@ impl Doc {
             let is_trivia = trimmed.is_empty() || (first == '#');
             let is_key = !is_trivia && !first.is_whitespace() && first != '-';
             if is_key {
-                if let Some(b) = current.take() {
-                    raw_blocks.push(b);
+                if let Some((lead, body)) = current.take() {
+                    doc.push_block(lead, body)?;
                 }
                 current = Some((std::mem::take(&mut pending), line));
             } else if is_trivia {
@@ -146,23 +145,25 @@ impl Doc {
                 return Err(format!("unexpected content: '{}'", trimmed));
             }
         }
-        if let Some(b) = current.take() {
-            raw_blocks.push(b);
+        if let Some((lead, body)) = current {
+            doc.push_block(lead, body)?;
         }
         doc.tail = pending;
-        for (lead, body) in raw_blocks {
-            let (key, value) = parse_block(&body)?;
-            if doc.blocks.iter().any(|b| b.key == key) {
-                return Err(format!("duplicate key '{key}'"));
-            }
-            doc.blocks.push(Block {
-                key,
-                lead,
-                body,
-                value,
-            });
-        }
         Ok(doc)
+    }
+
+    fn push_block(&mut self, lead: String, body: String) -> Result<(), String> {
+        let (key, value) = parse_block(&body)?;
+        if self.get(&key).is_some() {
+            return Err(format!("duplicate key '{key}'"));
+        }
+        self.blocks.push(Block {
+            key,
+            lead,
+            body,
+            value,
+        });
+        Ok(())
     }
 
     pub fn get(&self, key: &str) -> Option<&Value> {

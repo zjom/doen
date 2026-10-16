@@ -6,6 +6,7 @@ use crate::config::{ColorMode, Config, store_path};
 use crate::dates::Clock;
 use crate::error::{Error, Result};
 use crate::git;
+use crate::item::Item;
 use crate::store::{Change, Changes, Lock, Store, require_root};
 use crate::term;
 
@@ -58,8 +59,11 @@ impl App {
         })
     }
 
-    /// Asks for confirmation on the terminal. `-y` skips the prompt.
-    pub fn confirm(&self, question: &str) -> Result<()> {
+    /// Lists the items on stderr and asks for confirmation on the terminal. `-y` skips the prompt.
+    pub fn confirm(&self, items: &[&Item], question: &str) -> Result<()> {
+        for i in items {
+            eprintln!("  {}", i.label());
+        }
         if self.yes {
             return Ok(());
         }

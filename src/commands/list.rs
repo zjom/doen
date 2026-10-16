@@ -122,7 +122,7 @@ pub fn grep(app: &App, c: GrepCmd) -> Result<()> {
     }
     let q = query(&c.filter, c.kind, Some(&c.pattern), &app.clock)?;
     match list(app, &q, &c.output)? {
-        0 => Err(Error::NoMatches),
+        0 => Err(Error::Silent(5)),
         _ => Ok(()),
     }
 }

@@ -45,15 +45,13 @@ pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
     let mut tx = app.begin()?;
     let idx = resolve_ids(&tx.store, &c.id, op == Lifecycle::Restore)?;
     if op == Lifecycle::Trash {
-        for &n in &idx {
-            eprintln!("  {}", tx.store.items[n].label());
-        }
         let what = if idx.len() == 1 {
             "this item".to_string()
         } else {
             format!("these {} items", idx.len())
         };
-        app.confirm(&format!("Move {what} to the trash?"))?;
+        let items: Vec<&Item> = idx.iter().map(|&n| &tx.store.items[n]).collect();
+        app.confirm(&items, &format!("Move {what} to the trash?"))?;
     }
     let set = matches!(op, Lifecycle::Archive | Lifecycle::Trash).then_some(app.clock.today);
     for n in idx {
@@ -70,19 +68,21 @@ pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
 
 pub fn empty_trash(app: &App) -> Result<()> {
     let mut tx = app.begin()?;
-    let trashed: Vec<usize> = (0..tx.store.items.len())
-        .filter(|&n| tx.store.items[n].place == Place::Trash)
+    let trashed: Vec<&Item> = tx
+        .store
+        .items
+        .iter()
+        .filter(|i| i.place == Place::Trash)
         .collect();
     if trashed.is_empty() {
         eprintln!("doen: the trash is empty");
         return tx.finish(app);
     }
-    for &n in &trashed {
-        eprintln!("  {}", tx.store.items[n].label());
-    }
-    app.confirm(&format!("Delete {} items permanently?", trashed.len()))?;
-    for &n in &trashed {
-        let item = &tx.store.items[n];
+    app.confirm(
+        &trashed,
+        &format!("Delete {} items permanently?", trashed.len()),
+    )?;
+    for item in trashed {
         store::delete(item, &mut tx.changes)?;
         tx.changes.shown.push(Change::new("deleted", item));
     }
