@@ -95,45 +95,74 @@ fn pad(s: &str, w: usize) -> String {
     format!("{s}{}", " ".repeat(w.saturating_sub(n)))
 }
 
+fn hashtags(tags: &[String]) -> String {
+    tags.iter()
+        .map(|t| format!("#{t}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Keeps at most `limit` items in total, taken from the groups in order.
+pub fn limit(groups: &mut [(&str, Vec<&Item>)], limit: Option<usize>) {
+    if let Some(mut left) = limit {
+        for (_, g) in groups {
+            g.truncate(left);
+            left -= g.len();
+        }
+    }
+}
+
 /// Prints groups of items in the requested format.
 pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, long: bool) {
     let all: Vec<&Item> = groups.iter().flat_map(|(_, g)| g.iter().copied()).collect();
     if print_machine(&all, format) {
         return;
     }
-    let cell = |i: &Item| match i.meta.heading.as_ref().and(i.meta.current_status()) {
-        Some(s) => format!("[{}] {}", s.checkbox(), i.title()),
-        None if i.kind() == Kind::Todo => format!("[{}] {}", Status::Open.checkbox(), i.title()),
-        None => i.title().to_string(),
+    let cell = |i: &Item| match (i.meta.current_status(), &i.meta.heading) {
+        (Some(s), Some(_)) => format!("[{}] {}", s.checkbox(), i.title()),
+        (Some(_), None) => format!("[{}] {}", Status::Open.checkbox(), i.title()),
+        (None, _) => i.title().to_string(),
     };
-    let id_w = all.iter().map(|i| i.id().len()).max().unwrap_or(4);
-    let cell_w = all
+    struct Row<'a> {
+        item: &'a Item,
+        cell: String,
+        date: String,
+    }
+    let groups: Vec<(&str, Vec<Row>)> = groups
         .iter()
-        .map(|i| cell(i).chars().count())
-        .max()
-        .unwrap_or(0);
-    let date_w = all
-        .iter()
-        .map(|i| date_cell(i, app).chars().count())
-        .max()
-        .unwrap_or(0);
-    let mut first = true;
-    for (header, items) in groups {
-        if items.is_empty() {
-            continue;
-        }
-        if !first {
+        .filter(|(_, items)| !items.is_empty())
+        .map(|(h, items)| {
+            let rows = items.iter().map(|&item| Row {
+                item,
+                cell: cell(item),
+                date: date_cell(item, app),
+            });
+            (*h, rows.collect())
+        })
+        .collect();
+    let width = |f: fn(&Row) -> usize| groups.iter().flat_map(|(_, r)| r).map(f).max().unwrap_or(0);
+    let id_w = width(|r| r.item.id().len());
+    let cell_w = width(|r| r.cell.chars().count());
+    let date_w = width(|r| r.date.chars().count());
+    for (k, (header, rows)) in groups.iter().enumerate() {
+        if k > 0 {
             println!();
         }
-        first = false;
         println!("{}", app.paint("1", header));
-        for i in items {
+        for Row {
+            item: i,
+            cell,
+            date,
+        } in rows
+        {
+            let date = pad(date, date_w);
             let mut cols = vec![
                 app.paint("33", &pad(i.id(), id_w)),
-                pad(&cell(i), cell_w),
-                match pad(&date_cell(i, app), date_w) {
-                    d if is_overdue(i, app) => app.paint("31", &d),
-                    d => d,
+                pad(cell, cell_w),
+                if is_overdue(i, app) {
+                    app.paint("31", &date)
+                } else {
+                    date
                 },
             ];
             if long {
@@ -148,8 +177,7 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
                     cols.push(history(i));
                 }
             }
-            let tags: Vec<String> = i.meta.tags.iter().map(|t| format!("#{t}")).collect();
-            cols.push(app.paint("36", &tags.join(" ")));
+            cols.push(app.paint("36", &hashtags(&i.meta.tags)));
             println!("  {}", cols.join("  ").trim_end());
         }
     }
@@ -175,13 +203,7 @@ pub fn summary(item: &Item, app: &App) -> String {
         parts.push(format!("trashed {}", d.format(&app.cfg.date_format)));
     }
     if !m.tags.is_empty() {
-        parts.push(
-            m.tags
-                .iter()
-                .map(|t| format!("#{t}"))
-                .collect::<Vec<_>>()
-                .join(" "),
-        );
+        parts.push(hashtags(&m.tags));
     }
     parts.join(" · ")
 }

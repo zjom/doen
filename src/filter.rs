@@ -100,16 +100,14 @@ impl Query {
     }
 }
 
+fn cmp_key<K: Ord>(a: K, b: K, reverse: bool) -> Ordering {
+    if reverse { b.cmp(&a) } else { a.cmp(&b) }
+}
+
 /// Compares two optional keys. Items without the key come last, also when reversed.
 fn cmp_opt<K: Ord>(a: Option<K>, b: Option<K>, reverse: bool) -> Ordering {
     match (a, b) {
-        (Some(a), Some(b)) => {
-            if reverse {
-                b.cmp(&a)
-            } else {
-                a.cmp(&b)
-            }
-        }
+        (Some(a), Some(b)) => cmp_key(a, b, reverse),
         (Some(_), None) => Ordering::Less,
         (None, Some(_)) => Ordering::Greater,
         (None, None) => Ordering::Equal,
@@ -118,55 +116,45 @@ fn cmp_opt<K: Ord>(a: Option<K>, b: Option<K>, reverse: bool) -> Ordering {
 
 fn cmp_field(a: &Item, b: &Item, field: SortField, reverse: bool) -> Ordering {
     let (ma, mb) = (&a.meta, &b.meta);
-    let note_field = |f: SortField, k: Kind| match (f, k) {
-        (SortField::Due | SortField::Closed | SortField::Status, Kind::Note) => SortField::Date,
-        _ => f,
-    };
-    let (fa, fb) = (note_field(field, ma.kind), note_field(field, mb.kind));
-    if fa != fb {
-        // A todo and a note in the same group never happen; keep the order stable.
-        return Ordering::Equal;
-    }
-    match fa {
+    match field {
         SortField::Due => cmp_opt(ma.due, mb.due, reverse),
-        SortField::Date => cmp_opt(Some(ma.date), Some(mb.date), reverse),
-        SortField::Created => cmp_opt(Some(ma.created), Some(mb.created), reverse),
+        SortField::Date => cmp_key(ma.date, mb.date, reverse),
+        SortField::Created => cmp_key(ma.created, mb.created, reverse),
         SortField::Closed => cmp_opt(ma.closed_on(), mb.closed_on(), reverse),
-        SortField::Title => cmp_opt(
-            Some(a.title().to_lowercase()),
-            Some(b.title().to_lowercase()),
-            reverse,
-        ),
+        SortField::Title => cmp_key(a.title().to_lowercase(), b.title().to_lowercase(), reverse),
         SortField::Status => cmp_opt(ma.current_status(), mb.current_status(), reverse),
     }
 }
 
-/// Sorts one group (todos or notes).
-pub fn sort(items: &mut [&Item], field: Option<SortField>, reverse: bool) {
-    items.sort_by(|a, b| match field {
-        Some(f) => cmp_field(a, b, f, reverse)
-            .then_with(|| cmp_opt(Some(a.meta.created), Some(b.meta.created), reverse)),
-        None if a.kind() == Kind::Todo => cmp_opt(a.meta.due, b.meta.due, reverse)
-            .then_with(|| cmp_opt(Some(a.meta.created), Some(b.meta.created), reverse)),
-        None => cmp_opt(Some(a.meta.date), Some(b.meta.date), !reverse)
-            .then_with(|| cmp_opt(Some(a.meta.created), Some(b.meta.created), !reverse)),
+/// Sorts a group of items of one kind. Notes have no due date, closed date or status and sort by
+/// date instead; by default, the newest notes come first.
+fn sort(items: &mut [&Item], field: Option<SortField>, reverse: bool) {
+    let Some(kind) = items.first().map(|i| i.kind()) else {
+        return;
+    };
+    let (field, reverse) = match (field, kind) {
+        (None, Kind::Todo) => (SortField::Due, reverse),
+        (None, Kind::Note) => (SortField::Date, !reverse),
+        (Some(SortField::Due | SortField::Closed | SortField::Status), Kind::Note) => {
+            (SortField::Date, reverse)
+        }
+        (Some(f), _) => (f, reverse),
+    };
+    items.sort_by(|a, b| {
+        cmp_field(a, b, field, reverse)
+            .then_with(|| cmp_key(a.meta.created, b.meta.created, reverse))
     });
 }
 
-/// Splits the matching items into sorted todos and notes, and applies the limit.
+/// Splits the items into sorted todos and notes.
 pub fn select<'a>(
     items: impl Iterator<Item = &'a Item>,
     field: Option<SortField>,
     reverse: bool,
-    limit: Option<usize>,
 ) -> (Vec<&'a Item>, Vec<&'a Item>) {
     let (mut todos, mut notes): (Vec<&Item>, Vec<&Item>) =
         items.partition(|i| i.kind() == Kind::Todo);
     sort(&mut todos, field, reverse);
     sort(&mut notes, field, reverse);
-    if let Some(n) = limit {
-        todos.truncate(n);
-        notes.truncate(n - todos.len());
-    }
     (todos, notes)
 }

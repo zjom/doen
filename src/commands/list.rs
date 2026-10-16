@@ -7,7 +7,7 @@ use crate::dates::{Clock, Range, parse_range};
 use crate::error::{Error, Result, usage};
 use crate::filter::{Query, StatusFilter, TextMatch, select};
 use crate::item::{Item, Kind, Place, Status};
-use crate::output::{Format, print_groups};
+use crate::output::{Format, limit, print_groups};
 use crate::tags::TagFilter;
 use crate::term::stdout_is_terminal;
 
@@ -83,6 +83,13 @@ fn query(f: &FilterArgs, kind: Option<Kind>, text: Option<&str>, clock: &Clock) 
     })
 }
 
+/// Limits and prints groups of items. Returns the number of items printed.
+fn print(app: &App, mut groups: Vec<(&str, Vec<&Item>)>, output: &OutputArgs) -> usize {
+    limit(&mut groups, output.limit);
+    print_groups(app, &groups, output.format.format(), output.long);
+    groups.iter().map(|(_, g)| g.len()).sum()
+}
+
 /// Runs a list query and prints the result. Returns the number of items.
 fn list(app: &App, q: &Query, output: &OutputArgs) -> Result<usize> {
     let store = app.store()?;
@@ -91,16 +98,8 @@ fn list(app: &App, q: &Query, output: &OutputArgs) -> Result<usize> {
         matching,
         output.sort.or(app.cfg.default_sort),
         output.reverse,
-        output.limit,
     );
-    let n = todos.len() + notes.len();
-    print_groups(
-        app,
-        &[("TODOS", todos), ("NOTES", notes)],
-        output.format.format(),
-        output.long,
-    );
-    Ok(n)
+    Ok(print(app, vec![("TODOS", todos), ("NOTES", notes)], output))
 }
 
 pub fn ls(app: &App, c: LsCmd) -> Result<()> {
@@ -169,16 +168,11 @@ pub fn today(app: &App, c: TodayCmd) -> Result<()> {
         .filter(|i| i.kind() == Kind::Note && i.meta.date == today);
     let field = c.output.sort.or(app.cfg.default_sort);
     let reverse = c.output.reverse;
-    let (overdue, _) = select(overdue, field, reverse, None);
-    let (due, _) = select(due, field, reverse, None);
-    let (_, notes) = select(notes, field, reverse, None);
-    let mut groups = vec![("OVERDUE", overdue), ("DUE TODAY", due), ("NOTES", notes)];
-    if let Some(mut left) = c.output.limit {
-        for (_, g) in &mut groups {
-            g.truncate(left);
-            left -= g.len();
-        }
-    }
-    print_groups(app, &groups, c.output.format.format(), c.output.long);
+    let groups = vec![
+        ("OVERDUE", select(overdue, field, reverse).0),
+        ("DUE TODAY", select(due, field, reverse).0),
+        ("NOTES", select(notes, field, reverse).1),
+    ];
+    print(app, groups, &c.output);
     Ok(())
 }
