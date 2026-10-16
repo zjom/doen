@@ -4,9 +4,18 @@ doen is a notebook cli designed to actually get shit doen.
 
 doen is portable, flexible and minimal.
 
+inspired by [nb](https://github.com/xwmx/nb)
+
+## installation
+
 ```sh
 cargo install doen
+
+# or
+nix run github:zjom/doen
 ```
+
+## usage
 
 ```
 doen — get shit doen
@@ -54,4 +63,8 @@ Global options:
 Run 'doen help <command>' for the options of a command.
 ```
 
-inspired by [nb](https://github.com/xwmx/nb)
+## development
+
+```sh
+nix develop
+```
