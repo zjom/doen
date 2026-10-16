@@ -45,6 +45,7 @@
             rust-analyzer
             cargo-edit
             cargo-watch
+            cargo-release
             nixfmt
           ];
           RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
