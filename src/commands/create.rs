@@ -46,12 +46,7 @@ pub fn filename(item: &Item) -> String {
     }
 }
 
-pub fn run(app: &App, name: &str, c: CreateCmd) -> Result<()> {
-    let kind = if name == "todo" {
-        Kind::Todo
-    } else {
-        Kind::Note
-    };
+pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     let title = c.title.join(" ").trim().to_string();
     if kind == Kind::Note && c.due.is_some() {
         return Err(usage("-d applies only to todos"));

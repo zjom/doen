@@ -1,33 +1,159 @@
-//! Argument structs for each command.
-
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+use crate::config::ColorMode;
+use crate::filter::{SortField, StatusFilter};
+use crate::item::Kind;
+
+pub const TOP_HELP: &str = "\
+doen — a notebook for the terminal
+
+Usage: doen [command] [options] [args]
+
+Create:
+  note|n <title...>          create a note
+  todo|t <title...>          create a todo
+
+Read:
+  [ls] [note|todo] [filters] list (default command)
+  today                      overdue, due today, today's notes
+  show|s <id>...             print items
+  grep <pattern> [filters]   full-text search
+  tags [-a]                  list tags with counts
+
+Edit:
+  edit|e <id>                open in the editor
+  title <id> <title...>      change the title
+  due <date|none> <id>...    set or clear the due date
+  date <date> <id>...        set the date of the item
+  tag add|rm <tags> <id>...  add or remove tags
+
+Todo status:
+  done|d [--on <date>] <id>...
+  drop [--on <date>] <id>...
+  reopen [--on <date>] <id>...
+
+Lifecycle:
+  archive <id>...            unarchive <id>...
+  rm <id>...                 move to the trash
+  restore <id>...            restore from the trash
+  trash [--empty]            list or empty the trash
+
+Meta:
+  init                       create the store and the default config
+  check [--fix]              validate the store
+  completion bash|zsh|fish   print a completion script
+  help [command]
+
+Global options:
+  --dir <path>  --color auto|always|never  -y, --yes  -h, --help  --version
+
+Run 'doen help <command>' for the options of a command.
+";
+
+#[derive(Parser, Debug)]
+#[command(name = "doen", version, override_help = TOP_HELP, disable_help_subcommand = true)]
+pub struct Cli {
+    #[command(flatten)]
+    pub global: GlobalArgs,
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+/// The order of the variants is the order of the candidates in an ambiguous-prefix error.
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Create a note
+    #[command(alias = "n")]
+    Note(CreateCmd),
+    /// Create a todo
+    #[command(alias = "t")]
+    Todo(CreateCmd),
+    /// List items
+    Ls(LsCmd),
+    /// Agenda: overdue todos, todos due today, today's notes
+    Today(TodayCmd),
+    /// Print items
+    #[command(alias = "s")]
+    Show(ShowCmd),
+    /// Full-text search (exit code 5 if nothing matches)
+    Grep(GrepCmd),
+    /// List tags with counts
+    Tags(TagsCmd),
+    /// Open an item in the editor
+    #[command(alias = "e")]
+    Edit(EditCmd),
+    /// Change the title
+    Title(TitleCmd),
+    /// Set (or with `none`, clear) the due date
+    Due(DateCmd),
+    /// Set the date of the item
+    Date(DateCmd),
+    /// Add or remove tags
+    Tag {
+        #[command(subcommand)]
+        action: TagAction,
+    },
+    /// Mark todos done
+    #[command(alias = "d")]
+    Done(StatusCmd),
+    /// Mark todos dropped
+    Drop(StatusCmd),
+    /// Reopen todos
+    Reopen(StatusCmd),
+    /// Archive items
+    Archive(IdsCmd),
+    /// Unarchive items
+    Unarchive(IdsCmd),
+    /// Move items to the trash
+    Rm(IdsCmd),
+    /// Restore items from the trash
+    Restore(IdsCmd),
+    /// List or empty the trash
+    Trash(TrashCmd),
+    /// Create the store and the default config
+    Init,
+    /// Validate the store
+    Check(CheckCmd),
+    /// Print a shell completion script
+    Completion(CompletionCmd),
+    /// Show help
+    Help(HelpCmd),
+    #[command(name = "__complete", hide = true)]
+    Complete(CompleteCmd),
+}
+
 #[derive(Args, Debug, Clone, Default)]
 pub struct GlobalArgs {
     /// Use the store at PATH instead of the store in $DOEN_NOTES_DIR
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, value_name = "PATH", global = true)]
     pub dir: Option<PathBuf>,
-    /// When to color the output: auto, always or never
-    #[arg(long, value_name = "WHEN")]
-    pub color: Option<String>,
+    /// When to color the output
+    #[arg(long, value_name = "WHEN", global = true)]
+    pub color: Option<ColorMode>,
     /// Skip confirmation prompts
-    #[arg(short = 'y', long)]
+    #[arg(short = 'y', long, global = true)]
     pub yes: bool,
 }
 
 #[derive(Args, Debug, Clone, Default)]
-pub struct FilterArgs {
-    /// Status: open (default), done, drop, closed or any. Implies todo
-    #[arg(short = 's', long, value_name = "S")]
-    pub status: Option<String>,
+pub struct TagFilterArgs {
     /// Tags: a comma means OR, a repeated option means AND
     #[arg(short = 't', long, value_name = "TAGS")]
     pub tag: Vec<String>,
     /// Exclude items with one or more of these tags
     #[arg(short = 'x', long, value_name = "TAGS")]
     pub exclude_tag: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct FilterArgs {
+    /// Status (default: open). Implies todo
+    #[arg(short = 's', long, value_name = "S")]
+    pub status: Option<StatusFilter>,
+    #[command(flatten)]
+    pub tags: TagFilterArgs,
     /// Filter on the date field
     #[arg(short = 'w', long, value_name = "RANGE")]
     pub date: Option<String>,
@@ -62,9 +188,9 @@ pub struct FilterArgs {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct OutputArgs {
-    /// Sort by due, date, created, closed, title or status
+    /// Sort field
     #[arg(long, value_name = "FIELD")]
-    pub sort: Option<String>,
+    pub sort: Option<SortField>,
     /// Reverse the sort order
     #[arg(short = 'r', long)]
     pub reverse: bool,
@@ -91,8 +217,7 @@ pub struct FormatArgs {
     pub json: bool,
 }
 
-/// Create a note or a todo
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct CreateCmd {
     /// The title words
     pub title: Vec<String>,
@@ -114,15 +239,11 @@ pub struct CreateCmd {
     /// Open the item in the editor after creation
     #[arg(short = 'e', long)]
     pub edit: bool,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// List items
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct LsCmd {
-    /// note|n or todo|t
-    pub kind: Option<String>,
+    pub kind: Option<Kind>,
     #[command(flatten)]
     pub filter: FilterArgs,
     #[command(flatten)]
@@ -133,57 +254,39 @@ pub struct LsCmd {
     /// Do not print the command cheatsheet below the list
     #[arg(long)]
     pub no_footer: bool,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// Full-text search (exit code 5 if nothing matches)
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct GrepCmd {
     pub pattern: String,
-    /// note|n or todo|t
-    pub kind: Option<String>,
+    pub kind: Option<Kind>,
     #[command(flatten)]
     pub filter: FilterArgs,
     #[command(flatten)]
     pub output: OutputArgs,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// List or empty the trash
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct TrashCmd {
     /// Delete the items in the trash permanently
     #[arg(long)]
     pub empty: bool,
-    /// note|n or todo|t
-    pub kind: Option<String>,
+    pub kind: Option<Kind>,
     #[command(flatten)]
     pub filter: FilterArgs,
     #[command(flatten)]
     pub output: OutputArgs,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// Agenda: overdue todos, todos due today, today's notes
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct TodayCmd {
-    /// Tags: a comma means OR, a repeated option means AND
-    #[arg(short = 't', long, value_name = "TAGS")]
-    pub tag: Vec<String>,
-    /// Exclude items with one or more of these tags
-    #[arg(short = 'x', long, value_name = "TAGS")]
-    pub exclude_tag: Vec<String>,
+    #[command(flatten)]
+    pub tags: TagFilterArgs,
     #[command(flatten)]
     pub output: OutputArgs,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// Print items
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct ShowCmd {
     /// Print the files exactly as stored
     #[arg(long, conflicts_with = "path")]
@@ -195,12 +298,9 @@ pub struct ShowCmd {
     pub format: FormatArgs,
     #[arg(required = true, value_name = "ID")]
     pub id: Vec<String>,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// List tags with counts
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct TagsCmd {
     /// Count items in the store root and in the archive
     #[arg(short = 'a', long)]
@@ -211,43 +311,25 @@ pub struct TagsCmd {
     /// Print JSON
     #[arg(long)]
     pub json: bool,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// Open an item in the editor
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct EditCmd {
     pub id: String,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// Change the title
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct TitleCmd {
     pub id: String,
     #[arg(required = true)]
     pub title: Vec<String>,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// Set (or with `none`, clear) a date field
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct DateCmd {
     pub date: String,
     #[arg(required = true, value_name = "ID")]
     pub id: Vec<String>,
-    #[command(flatten)]
-    pub global: GlobalArgs,
-}
-
-/// Add or remove tags
-#[derive(Parser, Debug)]
-pub struct TagCmd {
-    #[command(subcommand)]
-    pub action: TagAction,
 }
 
 #[derive(Subcommand, Debug)]
@@ -264,46 +346,28 @@ pub struct TagArgs {
     pub tags: String,
     #[arg(required = true, value_name = "ID")]
     pub id: Vec<String>,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// Change the status of todos
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct StatusCmd {
     /// The date of the status change (default: today)
     #[arg(long, value_name = "DATE")]
     pub on: Option<String>,
     #[arg(required = true, value_name = "ID")]
     pub id: Vec<String>,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// A command that takes only IDs
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct IdsCmd {
     #[arg(required = true, value_name = "ID")]
     pub id: Vec<String>,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// Create the store and the default config
-#[derive(Parser, Debug)]
-pub struct InitCmd {
-    #[command(flatten)]
-    pub global: GlobalArgs,
-}
-
-/// Validate the store
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct CheckCmd {
     /// Repair what can be repaired
     #[arg(long)]
     pub fix: bool,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug)]
@@ -313,24 +377,17 @@ pub enum Shell {
     Fish,
 }
 
-/// Print a shell completion script
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct CompletionCmd {
     pub shell: Shell,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }
 
-/// Show help
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct HelpCmd {
     pub command: Option<String>,
 }
 
-/// Completion data (hidden)
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct CompleteCmd {
     pub what: String,
-    #[command(flatten)]
-    pub global: GlobalArgs,
 }

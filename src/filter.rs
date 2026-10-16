@@ -2,6 +2,7 @@
 
 use std::cmp::Ordering;
 
+use clap::ValueEnum;
 use regex::Regex;
 
 use crate::cli::args::{FilterArgs, OutputArgs};
@@ -10,7 +11,7 @@ use crate::error::{Result, usage};
 use crate::item::{Item, Kind, Place, Status};
 use crate::tags::TagFilter;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, ValueEnum)]
 pub enum StatusFilter {
     Open,
     Done,
@@ -20,17 +21,6 @@ pub enum StatusFilter {
 }
 
 impl StatusFilter {
-    pub fn parse(s: &str) -> Option<StatusFilter> {
-        Some(match s {
-            "open" => StatusFilter::Open,
-            "done" => StatusFilter::Done,
-            "drop" => StatusFilter::Drop,
-            "closed" => StatusFilter::Closed,
-            "any" => StatusFilter::Any,
-            _ => return None,
-        })
-    }
-
     fn accepts(self, s: Status) -> bool {
         match self {
             StatusFilter::Open => s == Status::Open,
@@ -42,7 +32,7 @@ impl StatusFilter {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, ValueEnum)]
 pub enum SortField {
     Due,
     Date,
@@ -50,20 +40,6 @@ pub enum SortField {
     Closed,
     Title,
     Status,
-}
-
-impl SortField {
-    pub fn parse(s: &str) -> Option<SortField> {
-        Some(match s {
-            "due" => SortField::Due,
-            "date" => SortField::Date,
-            "created" => SortField::Created,
-            "closed" => SortField::Closed,
-            "title" => SortField::Title,
-            "status" => SortField::Status,
-            _ => return None,
-        })
-    }
 }
 
 enum TextMatch {
@@ -97,14 +73,7 @@ impl Query {
         query: Option<&str>,
         clock: &Clock,
     ) -> Result<Query> {
-        let explicit = f.status.as_deref().map(|s| {
-            StatusFilter::parse(s).ok_or_else(|| {
-                usage(format!(
-                    "invalid status '{s}': use open, done, drop, closed or any"
-                ))
-            })
-        });
-        let explicit = explicit.transpose()?;
+        let explicit = f.status;
         let implies_todo = explicit.is_some() || f.due.is_some() || f.overdue || f.closed.is_some();
         if implies_todo && kind == Some(Kind::Note) {
             return Err(usage("-s, -d, --overdue and --closed apply only to todos"));
@@ -149,7 +118,7 @@ impl Query {
         } else {
             vec![Place::Root]
         };
-        let tags = TagFilter::new(&f.tag, &f.exclude_tag).map_err(usage)?;
+        let tags = TagFilter::new(&f.tags.tag, &f.tags.exclude_tag).map_err(usage)?;
         let q = query.or(f.query.as_deref());
         let text = match q {
             None => None,
@@ -287,16 +256,9 @@ pub fn sort(items: &mut [&Item], field: Option<SortField>, reverse: bool) {
 pub fn select<'a>(
     items: impl Iterator<Item = &'a Item>,
     out: &OutputArgs,
-    default_sort: Option<&str>,
-) -> Result<(Vec<&'a Item>, Vec<&'a Item>)> {
-    let field = match out.sort.as_deref().or(default_sort) {
-        None => None,
-        Some(s) => Some(SortField::parse(s).ok_or_else(|| {
-            usage(format!(
-                "invalid sort field '{s}': use due, date, created, closed, title or status"
-            ))
-        })?),
-    };
+    default_sort: Option<SortField>,
+) -> (Vec<&'a Item>, Vec<&'a Item>) {
+    let field = out.sort.or(default_sort);
     let (mut todos, mut notes): (Vec<&Item>, Vec<&Item>) =
         items.partition(|i| i.kind() == Kind::Todo);
     sort(&mut todos, field, out.reverse);
@@ -305,5 +267,5 @@ pub fn select<'a>(
         todos.truncate(n);
         notes.truncate(n - todos.len());
     }
-    Ok((todos, notes))
+    (todos, notes)
 }

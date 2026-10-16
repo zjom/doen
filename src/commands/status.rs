@@ -8,9 +8,11 @@ use crate::dates::parse_date;
 use crate::error::{Result, usage, warn};
 use crate::item::{Kind, Status};
 
-pub fn run(app: &App, name: &str, c: StatusCmd) -> Result<()> {
-    let status =
-        Status::parse(if name == "reopen" { "open" } else { name }).expect("status command");
+pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
+    let verb = match status {
+        Status::Open => "reopen",
+        s => s.as_str(),
+    };
     let on = match &c.on {
         Some(s) => parse_date(s, &app.clock).map_err(usage)?,
         None => app.clock.today,
@@ -45,7 +47,7 @@ pub fn run(app: &App, name: &str, c: StatusCmd) -> Result<()> {
             continue;
         }
         apply(app, &mut tx, n, status, on);
-        tx.save(n, name)?;
+        tx.save(n, verb)?;
     }
     tx.finish(app)
 }

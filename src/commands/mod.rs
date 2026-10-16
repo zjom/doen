@@ -9,7 +9,6 @@ pub mod meta;
 pub mod show;
 pub mod status;
 
-use std::ffi::OsString;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
@@ -35,13 +34,7 @@ impl App {
     pub fn new(g: &GlobalArgs) -> Result<App> {
         let root = store_path(g.dir.as_deref());
         let cfg = Config::load(&root)?;
-        let mode = match g.color.as_deref() {
-            Some(c) => {
-                ColorMode::parse(c).ok_or_else(|| usage(format!("invalid --color value '{c}'")))?
-            }
-            None => cfg.color.unwrap_or(ColorMode::Auto),
-        };
-        let color = match mode {
+        let color = match g.color.or(cfg.color).unwrap_or(ColorMode::Auto) {
             ColorMode::Always => true,
             ColorMode::Never => false,
             ColorMode::Auto => std::io::stdout().is_terminal(),
@@ -188,24 +181,6 @@ pub fn expand_ids(args: &[String]) -> Result<Vec<String>> {
 /// Resolves the ID arguments of a mutating command.
 pub fn resolve(tx: &Tx, args: &[String], trash: bool) -> Result<Vec<usize>> {
     ids::resolve_all(&tx.store, &expand_ids(args)?, trash)
-}
-
-/// Whether an unknown command word is the ID of an item.
-pub fn looks_like_id(pre: &[OsString], word: &str) -> bool {
-    if word.len() < 2 || !word.bytes().all(|b| b.is_ascii_alphanumeric()) {
-        return false;
-    }
-    let mut g = GlobalArgs::default();
-    let mut it = pre.iter().map(|a| a.to_string_lossy().to_string());
-    while let Some(a) = it.next() {
-        if a == "--dir" {
-            g.dir = it.next().map(PathBuf::from);
-        } else if let Some(d) = a.strip_prefix("--dir=") {
-            g.dir = Some(PathBuf::from(d));
-        }
-    }
-    let root = store_path(g.dir.as_deref());
-    Store::open(&root, false).is_ok_and(|s| ids::resolve(&s, word, true).is_ok())
 }
 
 pub fn item_line(item: &Item) -> String {

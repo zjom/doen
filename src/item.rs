@@ -8,9 +8,11 @@ use crate::dates::{parse_iso, parse_timestamp};
 use crate::frontmatter::{Doc, Value};
 use crate::tags;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum Kind {
+    #[value(alias = "n")]
     Note,
+    #[value(alias = "t")]
     Todo,
 }
 

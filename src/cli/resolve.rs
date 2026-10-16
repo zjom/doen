@@ -1,58 +1,38 @@
 //! Command-word resolution: exact full name, then alias, then unique prefix.
 
-/// Full names and aliases. `rm` never matches by prefix.
-pub const COMMANDS: &[(&str, Option<&str>)] = &[
-    ("note", Some("n")),
-    ("todo", Some("t")),
-    ("ls", None),
-    ("today", None),
-    ("show", Some("s")),
-    ("grep", None),
-    ("tags", None),
-    ("edit", Some("e")),
-    ("title", None),
-    ("due", None),
-    ("date", None),
-    ("tag", None),
-    ("done", Some("d")),
-    ("drop", None),
-    ("reopen", None),
-    ("archive", None),
-    ("unarchive", None),
-    ("rm", None),
-    ("restore", None),
-    ("trash", None),
-    ("init", None),
-    ("check", None),
-    ("completion", None),
-    ("help", None),
-];
+use clap::CommandFactory;
+
+use super::args::Cli;
 
 #[derive(Debug, PartialEq)]
 pub enum Resolved {
-    Command(&'static str),
-    Ambiguous(Vec<&'static str>),
+    Command(String),
+    Ambiguous(Vec<String>),
     Unknown,
 }
 
 pub fn resolve(word: &str) -> Resolved {
-    if word == "__complete" {
-        return Resolved::Command("__complete");
+    let cli = Cli::command();
+    let commands: Vec<&clap::Command> = cli.get_subcommands().collect();
+    let found = commands.iter().find(|c| c.get_name() == word).or_else(|| {
+        commands
+            .iter()
+            .find(|c| c.get_all_aliases().any(|a| a == word))
+    });
+    if let Some(c) = found {
+        return Resolved::Command(c.get_name().into());
     }
-    if let Some((name, _)) = COMMANDS.iter().find(|(n, _)| *n == word) {
-        return Resolved::Command(name);
-    }
-    if let Some((name, _)) = COMMANDS.iter().find(|(_, a)| *a == Some(word)) {
-        return Resolved::Command(name);
-    }
-    let matches: Vec<&'static str> = COMMANDS
+    // `rm` never matches by prefix.
+    let matches: Vec<String> = commands
         .iter()
-        .map(|(n, _)| *n)
+        .filter(|c| !c.is_hide_set())
+        .map(|c| c.get_name())
         .filter(|n| *n != "rm" && !word.is_empty() && n.starts_with(word))
+        .map(String::from)
         .collect();
-    match matches.len() {
-        0 => Resolved::Unknown,
-        1 => Resolved::Command(matches[0]),
+    match matches.as_slice() {
+        [] => Resolved::Unknown,
+        [n] => Resolved::Command(n.clone()),
         _ => Resolved::Ambiguous(matches),
     }
 }
@@ -63,17 +43,18 @@ mod tests {
 
     #[test]
     fn order() {
-        assert_eq!(resolve("t"), Resolved::Command("todo"));
-        assert_eq!(resolve("tag"), Resolved::Command("tag"));
-        assert_eq!(resolve("arch"), Resolved::Command("archive"));
-        assert_eq!(resolve("d"), Resolved::Command("done"));
-        assert_eq!(resolve("r"), Resolved::Ambiguous(vec!["reopen", "restore"]));
-        assert_eq!(
-            resolve("re"),
-            Resolved::Ambiguous(vec!["reopen", "restore"])
-        );
-        assert_eq!(resolve("to"), Resolved::Ambiguous(vec!["todo", "today"]));
-        assert_eq!(resolve("rm"), Resolved::Command("rm"));
+        let cmd = |n: &str| Resolved::Command(n.into());
+        let amb = |v: &[&str]| Resolved::Ambiguous(v.iter().map(|s| s.to_string()).collect());
+        assert_eq!(resolve("t"), cmd("todo"));
+        assert_eq!(resolve("tag"), cmd("tag"));
+        assert_eq!(resolve("arch"), cmd("archive"));
+        assert_eq!(resolve("d"), cmd("done"));
+        assert_eq!(resolve("r"), amb(&["reopen", "restore"]));
+        assert_eq!(resolve("re"), amb(&["reopen", "restore"]));
+        assert_eq!(resolve("to"), amb(&["todo", "today"]));
+        assert_eq!(resolve("rm"), cmd("rm"));
+        assert_eq!(resolve("__complete"), cmd("__complete"));
+        assert_eq!(resolve("_"), Resolved::Unknown);
         assert_eq!(resolve("xyz"), Resolved::Unknown);
     }
 }

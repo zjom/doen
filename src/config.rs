@@ -3,9 +3,11 @@
 use std::path::{Path, PathBuf};
 
 use chrono::Weekday;
+use clap::ValueEnum;
 
 use crate::dates::parse_weekday;
 use crate::error::{Result, general, warn};
+use crate::filter::SortField;
 use crate::frontmatter::{Value, parse_yaml};
 use crate::tags;
 
@@ -24,22 +26,11 @@ pub const KEYS: [&str; 12] = [
     "ls_footer",
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, ValueEnum)]
 pub enum ColorMode {
     Auto,
     Always,
     Never,
-}
-
-impl ColorMode {
-    pub fn parse(s: &str) -> Option<ColorMode> {
-        match s {
-            "auto" => Some(ColorMode::Auto),
-            "always" => Some(ColorMode::Always),
-            "never" => Some(ColorMode::Never),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -49,7 +40,7 @@ pub struct Config {
     pub week_start: Weekday,
     pub relative_days: i64,
     pub default_tags: Vec<String>,
-    pub default_sort: Option<String>,
+    pub default_sort: Option<SortField>,
     pub archive_closed: bool,
     pub trash_days: i64,
     pub git_autocommit: bool,
@@ -193,12 +184,13 @@ impl Config {
             }
             "ls_header" => self.ls_header = parse_bool(s()?).ok_or_else(|| bad(s().unwrap()))?,
             "ls_footer" => self.ls_footer = parse_bool(s()?).ok_or_else(|| bad(s().unwrap()))?,
-            "color" => self.color = Some(ColorMode::parse(s()?).ok_or_else(|| bad(s().unwrap()))?),
+            "color" => {
+                self.color = Some(ColorMode::from_str(s()?, false).map_err(|_| bad(s().unwrap()))?)
+            }
             "default_sort" => {
                 let f = s()?;
                 if !f.is_empty() {
-                    crate::filter::SortField::parse(f).ok_or_else(|| bad(f))?;
-                    self.default_sort = Some(f.to_string());
+                    self.default_sort = Some(SortField::from_str(f, false).map_err(|_| bad(f))?);
                 }
             }
             "default_tags" => {

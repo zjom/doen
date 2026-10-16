@@ -9,29 +9,18 @@ use crate::item::{Item, Kind, Place, Status};
 use crate::output::print_groups;
 use crate::tags::TagFilter;
 
-pub fn parse_kind(s: Option<&str>) -> Result<Option<Kind>> {
-    match s {
-        None => Ok(None),
-        Some("note" | "n") => Ok(Some(Kind::Note)),
-        Some("todo" | "t") => Ok(Some(Kind::Todo)),
-        Some(w) => Err(usage(format!(
-            "unexpected argument '{w}': the kind is note|n or todo|t"
-        ))),
-    }
-}
-
 /// Runs a list query and prints the result. Returns the number of items.
 fn list(app: &App, q: &Query, output: &crate::cli::args::OutputArgs) -> Result<usize> {
     let store = app.store()?;
     let matching = store.items.iter().filter(|i| q.accepts(i, &app.clock));
-    let (todos, notes) = select(matching, output, app.cfg.default_sort.as_deref())?;
+    let (todos, notes) = select(matching, output, app.cfg.default_sort);
     let n = todos.len() + notes.len();
     print_groups(app, &[("TODOS", todos), ("NOTES", notes)], output);
     Ok(n)
 }
 
 pub fn ls(app: &App, c: LsCmd) -> Result<()> {
-    let q = Query::new(&c.filter, parse_kind(c.kind.as_deref())?, None, &app.clock)?;
+    let q = Query::new(&c.filter, c.kind, None, &app.clock)?;
     // The banner and the cheatsheet are for people: only on a terminal, never with a machine format.
     let f = &c.output.format;
     let decorate = !(f.ids || f.porcelain || f.json) && stdout_is_terminal();
@@ -49,12 +38,7 @@ pub fn grep(app: &App, c: GrepCmd) -> Result<()> {
     if c.filter.query.is_some() {
         return Err(usage("grep takes the pattern as an argument, not with -q"));
     }
-    let q = Query::new(
-        &c.filter,
-        parse_kind(c.kind.as_deref())?,
-        Some(&c.pattern),
-        &app.clock,
-    )?;
+    let q = Query::new(&c.filter, c.kind, Some(&c.pattern), &app.clock)?;
     match list(app, &q, &c.output)? {
         0 => Err(Error::NoMatches),
         _ => Ok(()),
@@ -88,13 +72,13 @@ pub fn trash(app: &App, mut c: TrashCmd) -> Result<()> {
         return Err(usage("trash lists only the trash"));
     }
     c.filter.trashed = true;
-    let q = Query::new(&c.filter, parse_kind(c.kind.as_deref())?, None, &app.clock)?;
+    let q = Query::new(&c.filter, c.kind, None, &app.clock)?;
     list(app, &q, &c.output)?;
     Ok(())
 }
 
 pub fn today(app: &App, c: TodayCmd) -> Result<()> {
-    let tags = TagFilter::new(&c.tag, &c.exclude_tag).map_err(usage)?;
+    let tags = TagFilter::new(&c.tags.tag, &c.tags.exclude_tag).map_err(usage)?;
     let q = Query::scope(vec![Place::Root], StatusFilter::Any, tags);
     let store = app.store()?;
     let today = app.clock.today;
@@ -120,9 +104,9 @@ pub fn today(app: &App, c: TodayCmd) -> Result<()> {
         .filter(|i| i.kind() == Kind::Note && i.meta.date == today);
     let mut output = c.output.clone();
     let limit = output.limit.take();
-    let (overdue, _) = select(overdue, &output, app.cfg.default_sort.as_deref())?;
-    let (due, _) = select(due, &output, app.cfg.default_sort.as_deref())?;
-    let (_, notes) = select(notes, &output, app.cfg.default_sort.as_deref())?;
+    let (overdue, _) = select(overdue, &output, app.cfg.default_sort);
+    let (due, _) = select(due, &output, app.cfg.default_sort);
+    let (_, notes) = select(notes, &output, app.cfg.default_sort);
     let mut groups = vec![("OVERDUE", overdue), ("DUE TODAY", due), ("NOTES", notes)];
     if let Some(mut left) = limit {
         for (_, g) in &mut groups {

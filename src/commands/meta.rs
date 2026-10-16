@@ -33,16 +33,30 @@ pub fn title(app: &App, c: TitleCmd) -> Result<()> {
     tx.finish(app)
 }
 
-/// `doen due <date|none> <id>...` and `doen date <date> <id>...`.
-pub fn date(app: &App, field: &str, c: DateCmd) -> Result<()> {
-    let value = if field == "due" && c.date == "none" {
+#[derive(Clone, Copy, PartialEq)]
+pub enum DateField {
+    Due,
+    Date,
+}
+
+impl DateField {
+    fn key(self) -> &'static str {
+        match self {
+            DateField::Due => "due",
+            DateField::Date => "date",
+        }
+    }
+}
+
+pub fn date(app: &App, field: DateField, c: DateCmd) -> Result<()> {
+    let value = if field == DateField::Due && c.date == "none" {
         None
     } else {
         Some(parse_date(&c.date, &app.clock).map_err(usage)?)
     };
     let mut tx = app.begin()?;
     let idx = resolve(&tx, &c.id, false)?;
-    if field == "due"
+    if field == DateField::Due
         && let Some(&n) = idx
             .iter()
             .find(|&&n| tx.store.items[n].kind() == Kind::Note)
@@ -52,22 +66,26 @@ pub fn date(app: &App, field: &str, c: DateCmd) -> Result<()> {
             tx.store.items[n].id()
         )));
     }
-    if field == "due" && value.is_some_and(|d| d < app.clock.today) {
+    if field == DateField::Due && value.is_some_and(|d| d < app.clock.today) {
         warn("the due date is in the past");
     }
     for n in idx {
         let item = &mut tx.store.items[n];
-        let current = if field == "due" {
-            item.meta.due
-        } else {
-            Some(item.meta.date)
+        let current = match field {
+            DateField::Due => item.meta.due,
+            DateField::Date => Some(item.meta.date),
         };
         if current == value {
-            warn(format!("{}: {field} is already {}", item.id(), c.date));
+            warn(format!(
+                "{}: {} is already {}",
+                item.id(),
+                field.key(),
+                c.date
+            ));
             continue;
         }
-        item.set_date(field, value);
-        tx.save(n, field)?;
+        item.set_date(field.key(), value);
+        tx.save(n, field.key())?;
     }
     tx.finish(app)
 }
