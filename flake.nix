@@ -33,7 +33,10 @@
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.doen ];
+          # doCheck = false keeps nativeCheckInputs (git) out, so the user's own git stays on PATH
+          inputsFrom = [
+            (self.packages.${pkgs.stdenv.hostPlatform.system}.doen.overrideAttrs { doCheck = false; })
+          ];
           packages = with pkgs; [
             cargo
             rustc
@@ -42,7 +45,6 @@
             rust-analyzer
             cargo-edit
             cargo-watch
-            git
             nixfmt
           ];
           RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
