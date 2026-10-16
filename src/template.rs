@@ -1,0 +1,192 @@
+//! Templates for new items.
+
+use std::path::PathBuf;
+
+use chrono::{Datelike, NaiveDate};
+
+use crate::config::xdg_config_dir;
+use crate::dates::{Clock, parse_date, weekday_short};
+use crate::error::{Result, general, usage};
+use crate::frontmatter::{Doc, Value};
+use crate::item::Kind;
+use crate::tags;
+
+pub struct Template {
+    pub name: String,
+    pub doc: Doc,
+    pub body: String,
+}
+
+/// The fields that doen manages and that a template cannot set.
+const FORBIDDEN: [&str; 7] = [
+    "id", "kind", "created", "date", "archived", "trashed", "status",
+];
+
+pub fn dirs(store: &std::path::Path) -> [PathBuf; 2] {
+    [store.join(".templates"), xdg_config_dir().join("templates")]
+}
+
+fn find(store: &std::path::Path, name: &str) -> Option<PathBuf> {
+    dirs(store)
+        .into_iter()
+        .map(|d| d.join(format!("{name}.md")))
+        .find(|p| p.is_file())
+}
+
+/// Loads the template for `-T` (or the default template of the kind).
+pub fn load(store: &std::path::Path, kind: Kind, opt: Option<&str>) -> Result<Option<Template>> {
+    let (name, path) = match opt {
+        Some("none") => return Ok(None),
+        Some(n) => (
+            n,
+            find(store, n).ok_or_else(|| usage(format!("template '{n}' not found")))?,
+        ),
+        None => match find(store, kind.as_str()) {
+            Some(p) => (kind.as_str(), p),
+            None => return Ok(None),
+        },
+    };
+    let text = std::fs::read_to_string(&path)?;
+    let (doc, body) = match Doc::parse_file(&text) {
+        None => (Doc::empty(), text),
+        Some(Ok(parsed)) => parsed,
+        Some(Err(e)) => return Err(general(format!("{}: {e}", path.display()))),
+    };
+    if let Some(k) = doc.keys().find(|k| FORBIDDEN.contains(k)) {
+        return Err(general(format!(
+            "{}: a template cannot set '{k}'",
+            path.display()
+        )));
+    }
+    if kind == Kind::Note && doc.get("due").is_some() {
+        return Err(usage(format!(
+            "template '{name}' sets 'due', but a note has no due date"
+        )));
+    }
+    Ok(Some(Template {
+        name: name.to_string(),
+        doc,
+        body,
+    }))
+}
+
+impl Template {
+    pub fn tags(&self) -> Result<Vec<String>> {
+        match self.doc.get("tags") {
+            None => Ok(vec![]),
+            Some(Value::Seq(items)) => items
+                .iter()
+                .map(|t| {
+                    tags::normalize(t.as_str().unwrap_or(""))
+                        .map_err(|e| general(format!("template '{}': {e}", self.name)))
+                })
+                .collect(),
+            Some(Value::Str(s)) => {
+                tags::parse_list(s).map_err(|e| general(format!("template '{}': {e}", self.name)))
+            }
+            Some(_) => Err(general(format!(
+                "template '{}': 'tags' must be a list",
+                self.name
+            ))),
+        }
+    }
+
+    pub fn due(&self, clock: &Clock) -> Result<Option<NaiveDate>> {
+        match self.doc.get_str("due") {
+            None | Some("") => Ok(None),
+            Some(s) => parse_date(s, clock)
+                .map(Some)
+                .map_err(|e| general(format!("template '{}': {e}", self.name))),
+        }
+    }
+
+    /// The fields that the template copies into the new item.
+    pub fn extra_keys(&self) -> Vec<String> {
+        self.doc
+            .keys()
+            .filter(|k| *k != "tags" && *k != "due")
+            .map(String::from)
+            .collect()
+    }
+}
+
+/// Builds the body of a new item: the heading (from the template or the title), the template
+/// body and the content.
+pub fn build_body(
+    tmpl: Option<&str>,
+    title: &str,
+    date: NaiveDate,
+    id: &str,
+    kind: Kind,
+    content: Option<&str>,
+) -> String {
+    let text = tmpl
+        .unwrap_or("")
+        .replace("{{title}}", title)
+        .replace("{{date}}", &date.format("%Y-%m-%d").to_string())
+        .replace("{{weekday}}", weekday_short(date.weekday()))
+        .replace("{{id}}", id);
+    let mut lines: Vec<&str> = text.lines().collect();
+    let h1 = lines
+        .iter()
+        .position(|l| *l == "#" || l.starts_with("# ") || l.starts_with("#\t"));
+    let heading_text = match h1 {
+        Some(i) => {
+            let t = lines.remove(i)[1..].trim().to_string();
+            if lines[..i].iter().all(|l| l.trim().is_empty()) {
+                lines.drain(..i);
+            }
+            t
+        }
+        None => title.to_string(),
+    };
+    let heading = match kind {
+        Kind::Todo => format!("# [ ] {heading_text}"),
+        Kind::Note => format!("# {heading_text}"),
+    };
+    let mut body = format!("{}\n", heading.trim_end());
+    let rest = lines.join("\n");
+    let rest = rest.trim_end();
+    if !rest.is_empty() {
+        body.push_str(rest);
+        body.push('\n');
+    }
+    if let Some(c) = content {
+        let c = c.trim_end_matches('\n');
+        if !c.is_empty() {
+            if !rest.is_empty() {
+                body.push('\n');
+            }
+            body.push_str(c);
+            body.push('\n');
+        }
+    }
+    body
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn body() {
+        let d = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
+        assert_eq!(
+            build_body(None, "buy milk", d, "k3f9", Kind::Todo, None),
+            "# [ ] buy milk\n"
+        );
+        assert_eq!(
+            build_body(None, "x", d, "k3f9", Kind::Note, Some("hello\n")),
+            "# x\nhello\n"
+        );
+        let t = "# {{title}} ({{weekday}})\n\n## notes\n";
+        assert_eq!(
+            build_body(Some(t), "standup", d, "a", Kind::Note, None),
+            "# standup (fri)\n\n## notes\n"
+        );
+        assert_eq!(
+            build_body(Some("## a\n"), "t", d, "a", Kind::Todo, None),
+            "# [ ] t\n## a\n"
+        );
+    }
+}
