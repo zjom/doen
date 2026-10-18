@@ -10,7 +10,7 @@ use crate::filter::SortField;
 use crate::frontmatter::{Value, parse_yaml};
 use crate::tags;
 
-pub const KEYS: [&str; 12] = [
+pub const KEYS: [&str; 13] = [
     "editor",
     "date_format",
     "week_start",
@@ -23,6 +23,7 @@ pub const KEYS: [&str; 12] = [
     "color",
     "ls_header",
     "ls_footer",
+    "templates_dir",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, ValueEnum)]
@@ -46,6 +47,7 @@ pub struct Config {
     pub color: Option<ColorMode>,
     pub ls_header: bool,
     pub ls_footer: bool,
+    pub templates_dir: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -63,6 +65,7 @@ impl Default for Config {
             color: None,
             ls_header: true,
             ls_footer: true,
+            templates_dir: None,
         }
     }
 }
@@ -77,6 +80,15 @@ pub fn xdg_config_dir() -> PathBuf {
     match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
         Some(d) => PathBuf::from(d).join("doen"),
         None => home().join(".config").join("doen"),
+    }
+}
+
+/// Expands a leading `~/` to `$HOME`.
+fn expand_home(s: &str) -> PathBuf {
+    match s.strip_prefix("~/") {
+        Some(rest) => home().join(rest),
+        None if s == "~" => home(),
+        None => PathBuf::from(s),
     }
 }
 
@@ -176,6 +188,8 @@ impl Config {
             "ls_header" => self.ls_header = flag()?,
             "ls_footer" => self.ls_footer = flag()?,
             "color" => self.color = Some(ColorMode::from_str(s, false).map_err(|_| bad())?),
+            "templates_dir" if s.is_empty() => self.templates_dir = None,
+            "templates_dir" => self.templates_dir = Some(expand_home(s)),
             "default_sort" if s.is_empty() => self.default_sort = None,
             "default_sort" => {
                 self.default_sort = Some(SortField::from_str(s, false).map_err(|_| bad())?)
@@ -183,6 +197,15 @@ impl Config {
             _ => unreachable!("every key in KEYS is handled"),
         }
         Ok(())
+    }
+
+    /// The global templates directory: `templates_dir`, or `$XDG_CONFIG_HOME/doen/templates/`.
+    /// A relative `templates_dir` is relative to the store.
+    pub fn templates_dir(&self, store: &Path) -> PathBuf {
+        match &self.templates_dir {
+            Some(d) => store.join(d),
+            None => xdg_config_dir().join("templates"),
+        }
     }
 
     pub fn editor_command(&self) -> String {
@@ -206,4 +229,5 @@ pub const DEFAULT_CONFIG: &str = "\
 # color: auto
 # ls_header: true        # the banner above `doen ls`
 # ls_footer: true        # the cheatsheet below `doen ls`
+# templates_dir: ~/.config/doen/templates
 ";

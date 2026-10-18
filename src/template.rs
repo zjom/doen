@@ -1,9 +1,9 @@
 use std::fmt::Display;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use chrono::{Datelike, NaiveDate};
 
-use crate::config::xdg_config_dir;
+use crate::app::App;
 use crate::dates::{Clock, format_iso, parse_date, weekday_short};
 use crate::error::{Error, Result, general, usage};
 use crate::frontmatter::{Doc, MANAGED};
@@ -19,26 +19,27 @@ pub struct Template {
 /// The managed fields that a template can set.
 const MANAGED_IN_TEMPLATE: [&str; 2] = ["due", "tags"];
 
-pub fn dirs(store: &Path) -> [PathBuf; 2] {
-    [store.join(".templates"), xdg_config_dir().join("templates")]
+/// The template directories, in order of precedence.
+pub fn dirs(app: &App) -> [PathBuf; 2] {
+    [app.root.join(".templates"), app.cfg.templates_dir(&app.root)]
 }
 
-fn find(store: &Path, name: &str) -> Option<PathBuf> {
-    dirs(store)
+fn find(app: &App, name: &str) -> Option<PathBuf> {
+    dirs(app)
         .into_iter()
         .map(|d| d.join(format!("{name}.md")))
         .find(|p| p.is_file())
 }
 
 /// Loads the template for `-T` (or the default template of the kind).
-pub fn load(store: &Path, kind: Kind, opt: Option<&str>) -> Result<Option<Template>> {
+pub fn load(app: &App, kind: Kind, opt: Option<&str>) -> Result<Option<Template>> {
     let (name, path) = match opt {
         Some("none") => return Ok(None),
         Some(n) => (
             n,
-            find(store, n).ok_or_else(|| usage(format!("template '{n}' not found")))?,
+            find(app, n).ok_or_else(|| usage(format!("template '{n}' not found")))?,
         ),
-        None => match find(store, kind.as_str()) {
+        None => match find(app, kind.as_str()) {
             Some(p) => (kind.as_str(), p),
             None => return Ok(None),
         },

@@ -21,7 +21,7 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     if kind == Kind::Note && c.due.is_some() {
         return Err(usage("-d applies only to todos"));
     }
-    let tmpl = template::load(&app.root, kind, c.template.as_deref())?;
+    let tmpl = template::load(app, kind, c.template.as_deref())?;
     let mut tag_list = app.cfg.default_tags.clone();
     if let Some(t) = &tmpl {
         tags::merge(&mut tag_list, t.tags()?);

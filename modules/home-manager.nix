@@ -95,6 +95,7 @@ in
           ]) "When to color the output. doen default: `auto`.";
           ls_header = opt lib.types.bool "Print the banner above `doen ls`. doen default: true.";
           ls_footer = opt lib.types.bool "Print the cheatsheet below `doen ls`. doen default: true.";
+          templates_dir = opt lib.types.str "The global templates directory. A relative path is relative to the store. doen default: `$XDG_CONFIG_HOME/doen/templates`.";
         };
       };
     };
@@ -111,6 +112,7 @@ in
       description = ''
         Global templates, written to {file}`$XDG_CONFIG_HOME/doen/templates/<name>.md`.
         The names `note` and `todo` are the default templates of their kind.
+        doen ignores these templates if `settings.templates_dir` is set.
       '';
     };
   };

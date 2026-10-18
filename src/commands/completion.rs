@@ -45,7 +45,7 @@ pub fn data(app: &App, what: &str) -> Result<()> {
         }
         "templates" => {
             let mut names = BTreeSet::new();
-            for dir in template::dirs(&app.root) {
+            for dir in template::dirs(app) {
                 for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
                     if let Some(n) = e.file_name().to_str().and_then(|n| n.strip_suffix(".md")) {
                         names.insert(n.to_string());

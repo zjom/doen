@@ -437,6 +437,26 @@ fn templates() {
     assert_eq!(e.run(&["n", "x", "-T", "missing"]).code, 2);
 }
 
+#[test]
+fn templates_dir() {
+    let e = Env::new();
+    let global = e.dir.path().join("xdg/doen/templates");
+    fs::create_dir_all(&global).unwrap();
+    fs::write(global.join("todo.md"), "## xdg\n").unwrap();
+    let custom = e.dir.path().join("tpl");
+    fs::create_dir_all(&custom).unwrap();
+    fs::write(custom.join("todo.md"), "## custom\n").unwrap();
+    let id = e.id(&["t", "a"]);
+    assert!(e.read(&id).ends_with("## xdg\n"));
+    fs::write(e.dir.path().join("config.yaml"), "templates_dir: ~/tpl\n").unwrap();
+    let id = e.id(&["t", "b"]);
+    assert!(e.read(&id).ends_with("## custom\n"));
+    assert_eq!(e.ok(&["__complete", "templates"]), "todo\n");
+    fs::write(e.store().join(".templates/todo.md"), "## store\n").unwrap();
+    let id = e.id(&["t", "c"]);
+    assert!(e.read(&id).ends_with("## store\n"));
+}
+
 fn editor(e: &Env, script: &str) -> String {
     let p = e.dir.path().join("editor.sh");
     fs::write(&p, format!("#!/bin/sh\n{script}\n")).unwrap();

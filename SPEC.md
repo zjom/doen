@@ -569,7 +569,7 @@ stuff about it
 
 ### Templates
 
-Templates are Markdown files. doen looks for templates first in `<store>/.templates/` and then in `$XDG_CONFIG_HOME/doen/templates/`. If a store template and a global template have the same name, the store template takes precedence.
+Templates are Markdown files. doen looks for templates first in `<store>/.templates/` and then in the global templates directory. The global templates directory is the `templates_dir` config key, or `$XDG_CONFIG_HOME/doen/templates/` if this key is not set. If a store template and a global template have the same name, the store template takes precedence.
 
 - The option `-T meeting` uses the file `meeting.md`.
 - If the file `note.md` exists, doen uses this file as the default template for notes.
@@ -640,6 +640,7 @@ Examples:
 | `color` | `auto` | The color mode: `auto`, `always` or `never`. |
 | `ls_header` | `true` | If `false`, `doen ls` does not print the banner (see Header and footer). |
 | `ls_footer` | `true` | If `false`, `doen ls` does not print the cheatsheet (see Header and footer). |
+| `templates_dir` | `$XDG_CONFIG_HOME/doen/templates/` | The global templates directory (see Templates). A leading `~/` is the home directory. A relative path is relative to the store. |
 
 ### Environment
 
