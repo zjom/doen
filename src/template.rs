@@ -98,8 +98,8 @@ impl Template {
     }
 }
 
-/// Builds the body of a new item: the heading (from the template or the title), the template
-/// body and the content.
+/// Builds the body of a new item: a blank line, the heading (from the template or the title),
+/// the template body and the content.
 pub fn build_body(
     tmpl: Option<&str>,
     title: &str,
@@ -132,7 +132,7 @@ pub fn build_body(
         Kind::Todo => format!("# [ ] {heading_text}"),
         Kind::Note => format!("# {heading_text}"),
     };
-    let mut body = format!("{}\n", heading.trim_end());
+    let mut body = format!("\n{}\n", heading.trim_end());
     let rest = lines.join("\n");
     let rest = rest.trim_end();
     if !rest.is_empty() {
@@ -161,20 +161,20 @@ mod tests {
         let d = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
         assert_eq!(
             build_body(None, "buy milk", d, "k3f9", Kind::Todo, None),
-            "# [ ] buy milk\n"
+            "\n# [ ] buy milk\n"
         );
         assert_eq!(
             build_body(None, "x", d, "k3f9", Kind::Note, Some("hello\n")),
-            "# x\nhello\n"
+            "\n# x\nhello\n"
         );
         let t = "# {{title}} ({{weekday}})\n\n## notes\n";
         assert_eq!(
             build_body(Some(t), "standup", d, "a", Kind::Note, None),
-            "# standup (fri)\n\n## notes\n"
+            "\n# standup (fri)\n\n## notes\n"
         );
         assert_eq!(
             build_body(Some("## a\n"), "t", d, "a", Kind::Todo, None),
-            "# [ ] t\n## a\n"
+            "\n# [ ] t\n## a\n"
         );
     }
 }

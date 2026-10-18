@@ -502,6 +502,7 @@ created: 2026-10-16T09:02:11+11:00
 date: 2026-10-16
 tags: ["work"]
 ---
+
 # standup
 stuff about it
 ```
@@ -517,6 +518,7 @@ date: 2026-10-16
 due: 2026-10-18
 tags: ["admin"]
 ---
+
 # [ ] call bank
 stuff about it
 ```
@@ -541,6 +543,7 @@ status:
   - date: 2026-10-16
     status: done
 ---
+
 # [x] tax return
 stuff about it
 ```
@@ -557,6 +560,7 @@ date: 2026-09-12
 tags: []
 archived: 2026-10-16
 ---
+
 # old meeting notes
 stuff about it
 ```

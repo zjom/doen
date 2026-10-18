@@ -98,7 +98,7 @@ fn create_with_interleaved_options() {
     assert_eq!(
         text,
         format!(
-            "---\nid: \"{id}\"\nkind: todo\ncreated: {NOW}\ndate: 2026-10-16\ndue: 2026-10-23\ntags: [\"home\"]\n---\n# [ ] buy milk\n"
+            "---\nid: \"{id}\"\nkind: todo\ncreated: {NOW}\ndate: 2026-10-16\ndue: 2026-10-23\ntags: [\"home\"]\n---\n\n# [ ] buy milk\n"
         )
     );
     assert!(
@@ -191,7 +191,7 @@ fn status_archive_and_reopen() {
     let p = e.file(&id);
     assert_eq!(place_of(&p), ".archive");
     let text = e.read(&id);
-    assert!(text.contains("archived: 2026-10-16\nstatus:\n  - date: 2026-10-16\n    status: done\n---\n# [x] tax return\n"));
+    assert!(text.contains("archived: 2026-10-16\nstatus:\n  - date: 2026-10-16\n    status: done\n---\n\n# [x] tax return\n"));
     // Same status: warning, exit 0, no change.
     let o = e.run(&["done", &id]);
     assert_eq!(o.code, 0);
@@ -424,7 +424,7 @@ fn templates() {
     fs::write(e.store().join(".doen.yaml"), "default_tags: [inbox]\n").unwrap();
     let id = e.id(&["n", "standup", "-T", "meeting", "-t", "x"]);
     let text = e.read(&id);
-    assert!(text.contains("tags: [\"inbox\", \"work\", \"meeting\", \"x\"]\nproject: doen\n---\n# standup (fri)\n\n## notes\n"), "{text}");
+    assert!(text.contains("tags: [\"inbox\", \"work\", \"meeting\", \"x\"]\nproject: doen\n---\n\n# standup (fri)\n\n## notes\n"), "{text}");
     let id = e.id(&["t", "plan"]);
     let text = e.read(&id);
     assert!(
@@ -573,7 +573,7 @@ fn write_item(e: &Env, dir: &str, name_id: &str, id: &str, kind: &str, extra: &s
     fs::write(
         d.join(format!("20261016-{name_id}-x.md")),
         format!(
-            "---\nid: \"{id}\"\nkind: {kind}\ncreated: {NOW}\ndate: 2026-10-16\n{extra}---\n# {title}\n"
+            "---\nid: \"{id}\"\nkind: {kind}\ncreated: {NOW}\ndate: 2026-10-16\n{extra}---\n\n# {title}\n"
         ),
     )
     .unwrap();
