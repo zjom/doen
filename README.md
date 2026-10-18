@@ -15,6 +15,30 @@ cargo install doen
 nix run github:zjom/doen
 ```
 
+### home-manager
+
+```nix
+{
+  inputs.doen.url = "github:zjom/doen";
+
+  # in your home-manager modules:
+  imports = [ inputs.doen.homeManagerModules.default ];
+
+  programs.doen = {
+    enable = true;
+    notesDir = "${config.home.homeDirectory}/notes";
+    settings = {
+      week_start = "sun";
+      default_tags = [ "inbox" ];
+      git_autocommit = true;
+    };
+    templates.meeting = ./templates/meeting.md;
+  };
+}
+```
+
+`settings` accepts every key of `config.yaml`. A key you do not set keeps doen's default.
+
 ## usage
 
 ```
