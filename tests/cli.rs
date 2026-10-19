@@ -409,6 +409,19 @@ fn trash_empty() {
 }
 
 #[test]
+fn rm_force() {
+    let e = Env::new();
+    let a = e.id(&["n", "a"]);
+    let b = e.id(&["n", "b"]);
+    e.ok(&["rm", "-y", &b]);
+    assert_eq!(e.run(&["rm", "-f", &a]).code, 4);
+    let o = e.ok(&["rm", "--force", "-y", &a, &b]);
+    assert!(o.contains("deleted"));
+    assert!(!e.store().join(".trash").read_dir().unwrap().any(|_| true));
+    assert_eq!(e.ok(&["ls", "-a", "--ids"]), "");
+}
+
+#[test]
 fn templates() {
     let e = Env::new();
     fs::write(

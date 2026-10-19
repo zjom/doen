@@ -37,7 +37,7 @@ Todo status:
 
 Lifecycle:
   archive <id>...            unarchive <id>...
-  rm <id>...                 move to the trash
+  rm [-f] <id>...            move to the trash (-f: delete permanently)
   restore <id>...            restore from the trash
   trash [--empty]            list or empty the trash
 
@@ -108,7 +108,7 @@ pub enum Command {
     /// Unarchive items
     Unarchive(IdsCmd),
     /// Move items to the trash
-    Rm(IdsCmd),
+    Rm(RmCmd),
     /// Restore items from the trash
     Restore(IdsCmd),
     /// List or empty the trash
@@ -374,6 +374,15 @@ pub struct StatusCmd {
 
 #[derive(Args, Debug)]
 pub struct IdsCmd {
+    #[arg(required = true, value_name = "ID")]
+    pub id: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct RmCmd {
+    /// Delete the items permanently instead of moving them to the trash
+    #[arg(short, long)]
+    pub force: bool,
     #[arg(required = true, value_name = "ID")]
     pub id: Vec<String>,
 }

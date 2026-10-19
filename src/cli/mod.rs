@@ -14,7 +14,7 @@ use crate::error::{Error, Result, usage};
 use crate::ids;
 use crate::item::{Kind, Status};
 use crate::store::Store;
-use args::{Cli, Command, GlobalArgs, TOP_HELP, TagAction};
+use args::{Cli, Command, GlobalArgs, IdsCmd, TOP_HELP, TagAction};
 use resolve::Resolved;
 
 fn parse<T: Parser>(argv: Vec<OsString>) -> Result<T> {
@@ -126,7 +126,8 @@ pub fn run(argv: Vec<OsString>) -> Result<()> {
         Command::Reopen(c) => status::run(&app()?, Status::Open, c),
         Command::Archive(c) => lifecycle::run(&app()?, Lifecycle::Archive, c),
         Command::Unarchive(c) => lifecycle::run(&app()?, Lifecycle::Unarchive, c),
-        Command::Rm(c) => lifecycle::run(&app()?, Lifecycle::Trash, c),
+        Command::Rm(c) if c.force => lifecycle::delete(&app()?, c),
+        Command::Rm(c) => lifecycle::run(&app()?, Lifecycle::Trash, IdsCmd { id: c.id }),
         Command::Restore(c) => lifecycle::run(&app()?, Lifecycle::Restore, c),
         Command::Trash(c) if c.empty => lifecycle::empty_trash(&app()?),
         Command::Trash(c) => list::trash(&app()?, c),

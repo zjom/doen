@@ -17,14 +17,14 @@ doen is a simple notebook for the terminal. Each note and each todo is one Markd
 | status log | The `status` field of a todo. The status log is a list of status changes. |
 | mutating command | A command that changes one or more files in the store. |
 | option | A command-line option, for example `-t` or `--json`. |
-| delete permanently | Remove a file from the disk. The `doen rm` command does not delete permanently. The `doen rm` command moves items to the trash. |
+| delete permanently | Remove a file from the disk. The `doen rm` command moves items to the trash. Only `doen rm --force` deletes permanently. |
 
 ### Design principles
 
 - **Frontmatter is the single source of truth.** The frontmatter stores the kind, the status, the archive state, the trash state and the dates of an item. doen derives the heading checkbox and the directory of the file from the frontmatter. doen rewrites the heading checkbox and moves the file to match the frontmatter. There is one exception: a manual change to the checkbox in `doen edit`. The Editing section describes this exception.
 - **One meaning per option.** An option has the same meaning in every command. In a list command, an option filters the items. In a create command or a metadata command, the same option sets the same field.
 - **Fast capture is the main use case.** The command `doen t buy milk -d fri` works without quotation marks and without extra command words.
-- **doen does not delete data by accident.** Each status change, archive operation and trash operation has an inverse command (`reopen`, `unarchive`, `restore`). The `doen rm` command moves items to the trash. doen deletes an item in the trash permanently only after the `trash_days` period. doen does not keep versions of content changes. For a full history, use the `git_autocommit` config key.
+- **doen does not delete data by accident.** Each status change, archive operation and trash operation has an inverse command (`reopen`, `unarchive`, `restore`). The `doen rm` command moves items to the trash. doen deletes an item in the trash permanently only after the `trash_days` period, or if you give `doen rm --force` or `doen trash --empty`. doen does not keep versions of content changes. For a full history, use the `git_autocommit` config key.
 - **IDs are stable.** The ID of an item does not change when you edit the file, change the title, close the todo or archive the item. There is one exception: the repair of a duplicate ID (see IDs).
 - **doen is scriptable.**
   - doen writes results to stdout.
@@ -80,7 +80,7 @@ doen reopen [--on <date>] <id>...            back to open
 # lifecycle
 doen archive <id>...                         archive
 doen unarchive <id>...                       unarchive
-doen rm <id>...                              move to trash (asks to confirm)
+doen rm [-f] <id>...                         move to trash, -f deletes (asks to confirm)
 doen restore <id>...                         restore from trash
 doen trash [--empty] [filters]               list or empty trash
 
@@ -351,6 +351,7 @@ You can also change metadata without an editor:
 ### Delete and trash
 
 - `doen rm <id>...` shows the titles and asks you to confirm. The `-y` option skips this confirmation. The command then sets `trashed: <today>` and moves the files to `.trash/`.
+- `doen rm -f, --force <id>...` shows the titles and asks you to confirm. The `-y` option skips this confirmation. The command then deletes the items permanently. The IDs can refer to items in the trash.
 - `doen restore <id>...` removes the `trashed` field and moves each file back. If the item has the `archived` field, doen moves the file to `.archive/`. Otherwise, doen moves the file to the store root.
 - `doen trash` lists the items in the trash. The command accepts the same filters as `ls`.
 - `doen trash --empty` asks you to confirm. The command then deletes the items in the trash permanently.

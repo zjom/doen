@@ -64,6 +64,7 @@ _doen() {
         completion) _values 'shell' bash zsh fish ;;
         help) _describe 'command' cmds ;;
         init|check|tags) _arguments $common '--fix[repair]' '(-a --all)'{-a,--all}'[include archived]' ;;
+        rm) _arguments $common '(-f --force)'{-f,--force}'[delete permanently]' '*:id:_doen_ids' ;;
         *) _arguments $common '--on[date]:date:_doen_dates' '--raw[raw]' '--path[path]' '*:id:_doen_ids' ;;
     esac
 }

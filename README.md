@@ -71,7 +71,7 @@ Todo status:
 
 Lifecycle:
   archive <id>...            unarchive <id>...
-  rm <id>...                 move to the trash
+  rm [-f] <id>...            move to the trash (-f: delete permanently)
   restore <id>...            restore from the trash
   trash [--empty]            list or empty the trash
 

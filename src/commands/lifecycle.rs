@@ -1,5 +1,5 @@
 use crate::app::App;
-use crate::cli::args::IdsCmd;
+use crate::cli::args::{IdsCmd, RmCmd};
 use crate::commands::resolve_ids;
 use crate::error::{Result, warn};
 use crate::item::{Item, Place};
@@ -41,17 +41,20 @@ impl Lifecycle {
     }
 }
 
+fn these(n: usize) -> String {
+    if n == 1 {
+        "this item".to_string()
+    } else {
+        format!("these {n} items")
+    }
+}
+
 pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
     let mut tx = app.begin()?;
     let idx = resolve_ids(&mut tx.store, &c.id, op == Lifecycle::Restore)?;
     if op == Lifecycle::Trash {
-        let what = if idx.len() == 1 {
-            "this item".to_string()
-        } else {
-            format!("these {} items", idx.len())
-        };
         let items: Vec<&Item> = idx.iter().map(|&n| &tx.store.items[n]).collect();
-        app.confirm(&items, &format!("Move {what} to the trash?"))?;
+        app.confirm(&items, &format!("Move {} to the trash?", these(idx.len())))?;
     }
     let set = matches!(op, Lifecycle::Archive | Lifecycle::Trash).then_some(app.clock.today);
     for n in idx {
@@ -62,6 +65,19 @@ pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
         }
         item.set_date(op.field(), set);
         tx.save(n, op.verb())?;
+    }
+    tx.finish(app)
+}
+
+/// `rm --force`: deletes the items permanently, including items already in the trash.
+pub fn delete(app: &App, c: RmCmd) -> Result<()> {
+    let mut tx = app.begin()?;
+    let idx = resolve_ids(&mut tx.store, &c.id, true)?;
+    let items: Vec<&Item> = idx.iter().map(|&n| &tx.store.items[n]).collect();
+    app.confirm(&items, &format!("Delete {} permanently?", these(idx.len())))?;
+    for item in items {
+        store::delete(item, &mut tx.changes)?;
+        tx.changes.shown.push(Change::new("deleted", item));
     }
     tx.finish(app)
 }

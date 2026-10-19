@@ -22,7 +22,7 @@ _doen() {
         --dir) COMPREPLY=($(compgen -d -- "$cur")); return ;;
     esac
     if [[ $cur == -* ]]; then
-        COMPREPLY=($(compgen -W "--dir --color --yes --help -s -t -x -w -d -q -E -a -n -l -r --created --closed --overdue --archived --trashed --sort --ids --porcelain --json -c -T -e --on --raw --path --empty --fix --no-header --no-footer" -- "$cur"))
+        COMPREPLY=($(compgen -W "--dir --color --yes --help -s -t -x -w -d -q -E -a -n -l -r --created --closed --overdue --archived --trashed --sort --ids --porcelain --json -c -T -e --on --raw --path --empty --force --fix --no-header --no-footer" -- "$cur"))
         return
     fi
     case "$cmd" in
