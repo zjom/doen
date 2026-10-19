@@ -27,6 +27,7 @@ Edit:
   edit|e <id>                open in the editor
   title <id> <title...>      change the title
   due <date|none> <id>...    set or clear the due date
+  priority <p|none> <id>...  set or clear the priority (1-3, 3 highest)
   date <date> <id>...        set the date of the item
   tag add|rm <tags> <id>...  add or remove tags
 
@@ -91,6 +92,8 @@ pub enum Command {
     Due(DateCmd),
     /// Set the date of the item
     Date(DateCmd),
+    /// Set (or with `none`, clear) the priority: 1 to 3, 3 being the highest
+    Priority(PriorityCmd),
     /// Add or remove tags
     Tag {
         #[command(subcommand)]
@@ -164,6 +167,9 @@ pub struct FilterArgs {
     /// Filter on the due date (`none` for no due date). Implies todo
     #[arg(short = 'd', long, value_name = "RANGE")]
     pub due: Option<String>,
+    /// Priorities, separated by commas (`none` for no priority). Implies todo
+    #[arg(short = 'p', long, value_name = "P")]
+    pub priority: Option<String>,
     /// Filter on the date the todo was closed. Implies todo and -s closed
     #[arg(long, value_name = "RANGE")]
     pub closed: Option<String>,
@@ -251,6 +257,9 @@ pub struct CreateCmd {
     /// The due date (todos only)
     #[arg(short = 'd', long, value_name = "DATE")]
     pub due: Option<String>,
+    /// The priority: 1 to 3, 3 being the highest (todos only)
+    #[arg(short = 'p', long, value_name = "P", value_parser = clap::value_parser!(u8).range(1..=3))]
+    pub priority: Option<u8>,
     /// Open the item in the editor after creation
     #[arg(short = 'e', long)]
     pub edit: bool,
@@ -343,6 +352,14 @@ pub struct TitleCmd {
 #[derive(Args, Debug)]
 pub struct DateCmd {
     pub date: String,
+    #[arg(required = true, value_name = "ID")]
+    pub id: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct PriorityCmd {
+    /// 1, 2, 3 or `none`
+    pub priority: String,
     #[arg(required = true, value_name = "ID")]
     pub id: Vec<String>,
 }

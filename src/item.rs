@@ -111,6 +111,8 @@ pub struct Meta {
     pub created: DateTime<FixedOffset>,
     pub date: NaiveDate,
     pub due: Option<NaiveDate>,
+    /// 1 to 3, 3 being the highest. Todos only.
+    pub priority: Option<u8>,
     pub tags: Vec<String>,
     /// Tags in the file that are not valid.
     pub bad_tags: Vec<String>,
@@ -167,6 +169,16 @@ pub fn find_heading(body: &str, kind: Kind) -> Option<Heading> {
     None
 }
 
+/// Parses a priority: `1`, `2` or `3`.
+pub fn parse_priority(s: &str) -> Option<u8> {
+    match s {
+        "1" => Some(1),
+        "2" => Some(2),
+        "3" => Some(3),
+        _ => None,
+    }
+}
+
 fn date_field(doc: &Doc, key: &str) -> Result<Option<NaiveDate>, String> {
     match doc.get(key) {
         None => Ok(None),
@@ -206,6 +218,16 @@ impl Meta {
         let due = date_field(doc, "due")?;
         if due.is_some() && kind == Kind::Note {
             return Err("a note cannot have 'due'".into());
+        }
+        let priority = match doc.get("priority") {
+            None => None,
+            Some(Value::Str(s)) => {
+                Some(parse_priority(s).ok_or_else(|| format!("invalid priority '{s}'"))?)
+            }
+            Some(_) => return Err("'priority' must be 1, 2 or 3".into()),
+        };
+        if priority.is_some() && kind == Kind::Note {
+            return Err("a note cannot have 'priority'".into());
         }
         let mut tag_list = vec![];
         let mut bad_tags = vec![];
@@ -249,6 +271,7 @@ impl Meta {
             created,
             date,
             due,
+            priority,
             tags: tag_list,
             bad_tags,
             archived: date_field(doc, "archived")?,
@@ -351,6 +374,14 @@ impl Item {
         match d {
             Some(d) => self.doc.set(key, Value::Str(format_iso(d)), false),
             None => self.doc.remove(key),
+        }
+        self.refreshed();
+    }
+
+    pub fn set_priority(&mut self, p: Option<u8>) {
+        match p {
+            Some(p) => self.doc.set("priority", Value::Str(p.to_string()), false),
+            None => self.doc.remove("priority"),
         }
         self.refreshed();
     }

@@ -16,6 +16,7 @@ pub fn porcelain_line(item: &Item) -> String {
         m.due.map(format_iso).unwrap_or_default(),
         clean(item.title()),
         m.tags.join(","),
+        m.priority.map(|p| p.to_string()).unwrap_or_default(),
     ]
     .join("\t")
 }
@@ -116,9 +117,23 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
     if print_machine(&all, format) {
         return;
     }
+    // Priority marks (`!` to `!!!`) go between the checkbox and the title, in a column that
+    // exists only if an item has a priority.
+    let prio_w = all
+        .iter()
+        .filter_map(|i| i.meta.priority)
+        .max()
+        .unwrap_or(0) as usize;
+    let title = |i: &Item| match prio_w {
+        0 => i.title().to_string(),
+        w => {
+            let marks = "!".repeat(i.meta.priority.unwrap_or(0) as usize);
+            format!("{} {}", pad(&marks, w), i.title())
+        }
+    };
     let cell = |i: &Item| match (i.meta.current_status(), &i.meta.heading) {
-        (Some(s), Some(_)) => format!("[{}] {}", s.checkbox(), i.title()),
-        (Some(_), None) => format!("[{}] {}", Status::Open.checkbox(), i.title()),
+        (Some(s), Some(_)) => format!("[{}] {}", s.checkbox(), title(i)),
+        (Some(_), None) => format!("[{}] {}", Status::Open.checkbox(), title(i)),
         (None, _) => i.title().to_string(),
     };
     struct Row<'a> {
@@ -187,6 +202,9 @@ pub fn summary(item: &Item, app: &App) -> String {
     let mut parts = vec![m.id.clone(), m.kind.as_str().to_string()];
     if let Some(s) = m.current_status() {
         parts.push(s.as_str().to_string());
+    }
+    if let Some(p) = m.priority {
+        parts.push(format!("priority {p}"));
     }
     if let Some(d) = m.due {
         parts.push(format!("due {}", d.format(&app.cfg.date_format)));

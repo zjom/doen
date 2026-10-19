@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 
 use clap::ValueEnum;
 use regex::Regex;
@@ -37,6 +37,7 @@ pub enum SortField {
     Closed,
     Title,
     Status,
+    Priority,
 }
 
 pub enum TextMatch {
@@ -53,6 +54,8 @@ pub struct Query {
     pub date: Option<Range>,
     pub created: Option<Range>,
     pub due: Option<Range>,
+    /// The accepted priorities. `None` in the list matches todos without a priority.
+    pub priority: Option<Vec<Option<u8>>>,
     pub closed: Option<Range>,
     pub text: Option<TextMatch>,
 }
@@ -83,6 +86,10 @@ impl Query {
                 .due
                 .as_ref()
                 .is_some_and(|r| m.kind == Kind::Note || !r.contains(m.due))
+            || self
+                .priority
+                .as_ref()
+                .is_some_and(|ps| m.kind == Kind::Note || !ps.contains(&m.priority))
             || self
                 .closed
                 .as_ref()
@@ -121,10 +128,12 @@ fn cmp_field(a: &Item, b: &Item, field: SortField, reverse: bool) -> Ordering {
         SortField::Closed => cmp_opt(ma.closed_on(), mb.closed_on(), reverse),
         SortField::Title => cmp_key(a.title().to_lowercase(), b.title().to_lowercase(), reverse),
         SortField::Status => cmp_opt(ma.current_status(), mb.current_status(), reverse),
+        // The highest priority comes first.
+        SortField::Priority => cmp_opt(ma.priority.map(Reverse), mb.priority.map(Reverse), reverse),
     }
 }
 
-/// Sorts a group of items of one kind. Notes have no due date, closed date or status and sort by
+/// Sorts a group of items of one kind. Notes have no due date, closed date, status or priority and sort by
 /// date instead; by default, the newest notes come first.
 fn sort(items: &mut [&Item], field: Option<SortField>, reverse: bool) {
     let Some(kind) = items.first().map(|i| i.kind()) else {
@@ -133,13 +142,19 @@ fn sort(items: &mut [&Item], field: Option<SortField>, reverse: bool) {
     let (field, reverse) = match (field, kind) {
         (None, Kind::Todo) => (SortField::Due, reverse),
         (None, Kind::Note) => (SortField::Date, !reverse),
-        (Some(SortField::Due | SortField::Closed | SortField::Status), Kind::Note) => {
-            (SortField::Date, reverse)
-        }
+        (
+            Some(SortField::Due | SortField::Closed | SortField::Status | SortField::Priority),
+            Kind::Note,
+        ) => (SortField::Date, reverse),
         (Some(f), _) => (f, reverse),
     };
     items.sort_by(|a, b| {
         cmp_field(a, b, field, reverse)
+            .then_with(|| match field {
+                // Todos due on the same day: the highest priority comes first.
+                SortField::Due => cmp_field(a, b, SortField::Priority, reverse),
+                _ => Ordering::Equal,
+            })
             .then_with(|| cmp_key(a.meta.created, b.meta.created, reverse))
     });
 }

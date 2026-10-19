@@ -1,9 +1,9 @@
 use crate::app::App;
-use crate::cli::args::{DateCmd, TagArgs, TitleCmd};
+use crate::cli::args::{DateCmd, PriorityCmd, TagArgs, TitleCmd};
 use crate::commands::resolve_ids;
 use crate::dates::parse_date;
 use crate::error::{Result, usage, warn};
-use crate::item::Kind;
+use crate::item::{Kind, parse_priority};
 use crate::tags;
 
 pub fn title(app: &App, c: TitleCmd) -> Result<()> {
@@ -85,6 +85,37 @@ pub fn date(app: &App, field: DateField, c: DateCmd) -> Result<()> {
         }
         item.set_date(field.key(), value);
         tx.save(n, field.key())?;
+    }
+    tx.finish(app)
+}
+
+pub fn priority(app: &App, c: PriorityCmd) -> Result<()> {
+    let value = match c.priority.as_str() {
+        "none" => None,
+        s => Some(
+            parse_priority(s)
+                .ok_or_else(|| usage(format!("invalid priority '{s}': use 1, 2, 3 or none")))?,
+        ),
+    };
+    let mut tx = app.begin()?;
+    let idx = resolve_ids(&mut tx.store, &c.id, false)?;
+    if let Some(&n) = idx
+        .iter()
+        .find(|&&n| tx.store.items[n].kind() == Kind::Note)
+    {
+        return Err(usage(format!(
+            "{} is a note: only todos have a priority",
+            tx.store.items[n].id()
+        )));
+    }
+    for n in idx {
+        let item = &mut tx.store.items[n];
+        if item.meta.priority == value {
+            warn(format!("{}: priority is already {}", item.id(), c.priority));
+            continue;
+        }
+        item.set_priority(value);
+        tx.save(n, "priority")?;
     }
     tx.finish(app)
 }

@@ -345,8 +345,69 @@ fn porcelain_format() {
     let id = e.id(&["t", "call", "bank", "-d", "26-10-18", "-t", "admin,x"]);
     assert_eq!(
         e.ok(&["ls", "--porcelain"]),
-        format!("{id}\ttodo\topen\troot\t2026-10-16\t2026-10-18\tcall bank\tadmin,x\n")
+        format!("{id}\ttodo\topen\troot\t2026-10-16\t2026-10-18\tcall bank\tadmin,x\t\n")
     );
+}
+
+#[test]
+fn priorities() {
+    let e = Env::new();
+    let low = e.id(&["t", "low", "-p", "1", "-d", "26-10-18"]);
+    let high = e.id(&["t", "high", "-p", "3", "-d", "26-10-20"]);
+    let none = e.id(&["t", "none"]);
+    let note = e.id(&["n", "a note"]);
+    let text = e.read(&high);
+    assert!(
+        text.contains("due: 2026-10-20\npriority: 3\ntags:"),
+        "{text}"
+    );
+    assert_eq!(e.run(&["t", "x", "-p", "4"]).code, 2);
+    assert_eq!(e.run(&["n", "x", "-p", "1"]).code, 2);
+
+    let ids = |args: &[&str]| {
+        e.ok(args)
+            .split_whitespace()
+            .map(String::from)
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    assert_eq!(
+        ids(&["ls", "t", "--sort", "priority", "--ids"]),
+        [&high, &low, &none].map(String::as_str).join(" ")
+    );
+    assert_eq!(
+        ids(&["ls", "--sort", "priority", "-r", "--ids"]),
+        [&low, &high, &none, &note].map(String::as_str).join(" ")
+    );
+    assert_eq!(
+        ids(&["ls", "-p", "3,none", "--ids"]),
+        [&high, &none].map(String::as_str).join(" ")
+    );
+    // Equal due dates: the highest priority comes first.
+    let mid = e.id(&["t", "mid", "-p", "2", "-d", "26-10-18"]);
+    assert_eq!(
+        ids(&["ls", "t", "-p", "1,2", "--ids"]),
+        [&mid, &low].map(String::as_str).join(" ")
+    );
+    e.ok(&["rm", "-f", "-y", &mid]);
+    assert_eq!(e.run(&["ls", "n", "-p", "1"]).code, 2);
+    assert_eq!(e.run(&["ls", "-p", "0"]).code, 2);
+
+    let out = e.ok(&["ls", "t"]);
+    assert!(out.contains("[ ] !   low"), "{out}");
+    assert!(out.contains("[ ] !!! high"), "{out}");
+    assert!(out.contains("[ ]     none"), "{out}");
+    assert!(e.ok(&["ls", "--porcelain", "-p", "1"]).ends_with("\t1\n"));
+    assert!(e.ok(&["show", &high]).contains("· open · priority 3 ·"));
+
+    e.ok(&["priority", "2", &low, &none]);
+    assert!(e.read(&none).contains("priority: 2\n"));
+    let o = e.run(&["priority", "2", &low]);
+    assert!(o.code == 0 && o.stderr.contains("already"), "{}", o.stderr);
+    e.ok(&["priority", "none", &low]);
+    assert!(!e.read(&low).contains("priority"));
+    assert_eq!(e.run(&["priority", "2", &note]).code, 2);
+    assert_eq!(e.run(&["priority", "5", &high]).code, 2);
 }
 
 #[test]
@@ -431,7 +492,7 @@ fn templates() {
     .unwrap();
     fs::write(
         e.store().join(".templates/todo.md"),
-        "---\ndue: \"+2d\"\n---\n## steps\n",
+        "---\ndue: \"+2d\"\npriority: 2\n---\n## steps\n",
     )
     .unwrap();
     fs::write(e.store().join(".doen.yaml"), "default_tags: [inbox]\n").unwrap();
@@ -441,9 +502,11 @@ fn templates() {
     let id = e.id(&["t", "plan"]);
     let text = e.read(&id);
     assert!(
-        text.contains("due: 2026-10-18\n") && text.ends_with("# [ ] plan\n## steps\n"),
+        text.contains("due: 2026-10-18\npriority: 2\n") && text.ends_with("# [ ] plan\n## steps\n"),
         "{text}"
     );
+    let id = e.id(&["t", "plan", "-p", "3"]);
+    assert!(e.read(&id).contains("priority: 3\n"));
     let id = e.id(&["t", "plan", "-T", "none"]);
     assert!(!e.read(&id).contains("due"));
     assert_eq!(e.run(&["n", "x", "-T", "todo"]).code, 2);

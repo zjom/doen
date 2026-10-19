@@ -61,6 +61,7 @@ Edit:
   edit|e <id>                open in the editor
   title <id> <title...>      change the title
   due <date|none> <id>...    set or clear the due date
+  priority <p|none> <id>...  set or clear the priority (1-3, 3 highest)
   date <date> <id>...        set the date of the item
   tag add|rm <tags> <id>...  add or remove tags
 

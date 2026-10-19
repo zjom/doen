@@ -69,6 +69,7 @@ doen tags [-a]                               list tags with counts
 doen edit|e <id>                             open in the editor
 doen title <id> <title...>                   retitle
 doen due <date|none> <id>...                 set or clear due date
+doen priority <1-3|none> <id>...             set or clear priority (3 is the highest)
 doen date <date> <id>...                     set the item's date
 doen tag add|rm <tags> <id>...               add or remove tags
 
@@ -126,6 +127,7 @@ doen todo|t <title...> [create-opts]
 | `-T, --template <name>` | Uses the template `<name>` (see Templates). The value `none` disables the default template. | note, todo |
 | `-w, --date <date>` | Sets the date of the item (see Frontmatter fields). The default value is today. | note, todo |
 | `-d, --due <date>` | Sets the due date. | todo only (error for a note) |
+| `-p, --priority <p>` | Sets the priority: `1`, `2` or `3`. `3` is the highest. | todo only (error for a note) |
 | `-e, --edit` | Opens the item in the editor after doen creates the item. | note, todo |
 
 Examples:
@@ -153,7 +155,7 @@ The optional positional kind argument replaces the old `-k` option. `doen ls t` 
 
 Three properties decide which items a list includes before doen applies the filters:
 
-- **Kind:** The positional argument `note` or `todo`. If you omit the argument, the list includes both kinds. The options `-s`, `-d`, `--overdue` and `--closed` apply only to todos. Thus, these options imply `todo`. If you use one of these options with `ls n`, doen shows a usage error.
+- **Kind:** The positional argument `note` or `todo`. If you omit the argument, the list includes both kinds. The options `-s`, `-d`, `-p`, `--overdue` and `--closed` apply only to todos. Thus, these options imply `todo`. If you use one of these options with `ls n`, doen shows a usage error.
 - **Place:** The directory that contains the file: the store root, `.archive/` or `.trash/`.
 - **Status:** The `-s` option, for todos only. Notes have no status. The `-s` option does not affect notes.
 
@@ -177,6 +179,7 @@ An explicit `-s` option always takes precedence over the default status in this 
 | `-w, --date <range>` | Filters on the `date` field of the item. |
 | `--created <range>` | Filters on the day of the `created` timestamp, in local time. |
 | `-d, --due <range>` | Filters on the due date. The value `none` matches the todos that have no due date. This option implies `todo`. |
+| `-p, --priority <p>` | Filters on the priority. Separate the values with commas. The values are `1`, `2`, `3` and `none`. The value `none` matches the todos that have no priority. For example, `-p 2,3` matches the todos with priority 2 or 3. This option implies `todo`. |
 | `--closed <range>` | Filters on the date of the last entry in the status log. This option matches only closed todos. This option implies `todo`. If you do not give `-s`, this option also implies `-s closed`. |
 | `--overdue` | Selects the open todos that have a due date before today. This option is a short form of `-s open -d ..1d`. |
 | `-q, --query <text>` | Filters on a case-insensitive substring match in the title and in the body. doen does not search the frontmatter. |
@@ -189,7 +192,7 @@ An explicit `-s` option always takes precedence over the default status in this 
 
 | Option | Meaning |
 | --- | --- |
-| `--sort <field>` | Sorts the items by a field: `due`, `date`, `created`, `closed`, `title` or `status`. The default order for todos is by due date, then by creation time. The default order for notes is by date, with the newest note first. One `--sort` field applies to both groups. Notes have no `due`, `closed` or `status` field, so these three fields sort notes by date. Items that do not have the sort field come last. |
+| `--sort <field>` | Sorts the items by a field: `due`, `date`, `created`, `closed`, `title`, `status` or `priority`. The default order for todos is by due date, then by priority (highest first), then by creation time. Sorting by `due` always breaks ties by priority. The default order for notes is by date, with the newest note first. One `--sort` field applies to both groups. The `priority` field sorts the highest priority first. Notes have no `due`, `closed`, `status` or `priority` field, so these four fields sort notes by date. Items that do not have the sort field come last. |
 | `-r, --reverse` | Reverses the sort order. Items that do not have the sort field still come last. |
 | `-n, --limit <N>` | Shows a maximum of N items in total. Todos come first. |
 | `-l, --long` | Shows extra columns: the date, the creation time and the status history. |
@@ -214,7 +217,7 @@ The `--ids` option, the `--porcelain` option and the `--json` option work with t
 
 - The output has no header.
 - Each line contains one item.
-- The columns are, in this order: `id`, `kind`, `status`, `place`, `date`, `due`, `title`, `tags`.
+- The columns are, in this order: `id`, `kind`, `status`, `place`, `date`, `due`, `title`, `tags`, `priority`.
 - The `status` column is empty for notes.
 - The value of the `place` column is `root`, `archive` or `trash`.
 - Dates use the ISO format. If a date is not set, the column is empty.
@@ -236,6 +239,7 @@ Todos come first, then notes.
 - For notes, the date column shows the `date` field.
 - If a date is within `relative_days` days of today, doen shows the date as a relative date. The default value of `relative_days` is 7.
 - doen highlights overdue todos.
+- doen shows the priority of a todo as `!`, `!!` or `!!!` before the title. The priority column is present only if one or more items in the list have a priority.
 
 In the example that follows, today is Friday, 2026-10-16:
 
@@ -486,6 +490,7 @@ $DOEN_NOTES_DIR/
 | `created` | ISO timestamp | doen, at creation | Never changes. Read-only in `doen edit`. |
 | `date` | ISO date | `-w`, `doen date` | The day that the item is about. For a note, this day is the day of the meeting or of the journal entry. For a todo, this day is the day of capture or the day that is related to the todo. The default value is the day of creation. The `-w` option, sorting and `doen today` use this field. This field never hides or schedules a todo. |
 | `due` | ISO date | `-d`, `doen due` | Todos only. Optional. |
+| `priority` | `1`, `2` or `3` | `-p`, `doen priority` | Todos only. Optional. `3` is the highest. |
 | `tags` | list of quoted strings | `-t`, `doen tag` | doen always writes this field, even if the list is empty. |
 | `archived` | ISO date | `doen archive`, `done`, `drop` | Absent if the item is not archived. Decides the directory. |
 | `trashed` | ISO date | `doen rm` | Absent if the item is not in the trash. Decides the directory and the day of permanent deletion. |
@@ -582,7 +587,8 @@ A template can contain frontmatter:
 - doen merges the `tags` field of the template with the `-t` tags and the `default_tags` tags.
 - The `-d` option overrides the `due` field of the template.
 - The `due` field can contain a relative date (`due: "+2d"`). doen evaluates the relative date when doen creates the item.
-- If you use a template with a `due` field for a note, doen shows an error.
+- The `-p` option overrides the `priority` field of the template.
+- If you use a template with a `due` field or a `priority` field for a note, doen shows an error.
 - doen copies unknown fields into the new item.
 - The fields that doen manages (`id`, `kind`, `created`, `date`, `archived`, `trashed`, `status`) are errors in a template.
 
@@ -705,7 +711,6 @@ Automatic commits occur if `git_autocommit` is `true` and the store is inside a 
 
 ### Out of scope by design
 
-- **Priorities:** If you need priorities, use tags (`p1`, `p2`).
 - **Recurring todos, subtasks and dependencies:** These features require a scheduler and a graph. doen keeps a flat list.
 - **Times of day:** doen uses only dates. The exception is the `created` field.
 - **Synchronization:** The store contains only plain files. Use Git, Syncthing or a similar tool. `git_autocommit` records history but never pushes.

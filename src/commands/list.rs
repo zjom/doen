@@ -6,7 +6,7 @@ use crate::cli::args::{FilterArgs, GrepCmd, LsCmd, OutputArgs, TodayCmd, TrashCm
 use crate::dates::{Clock, Range, parse_range};
 use crate::error::{Error, Result, usage};
 use crate::filter::{Query, StatusFilter, TextMatch, select};
-use crate::item::{Item, Kind, Place, Status};
+use crate::item::{Item, Kind, Place, Status, parse_priority};
 use crate::output::{Format, limit, print_groups};
 use crate::tags::TagFilter;
 use crate::term::stdout_is_terminal;
@@ -17,9 +17,15 @@ fn range(arg: Option<&str>, clock: &Clock) -> Result<Option<Range>> {
 }
 
 fn query(f: &FilterArgs, kind: Option<Kind>, text: Option<&str>, clock: &Clock) -> Result<Query> {
-    let implies_todo = f.status.is_some() || f.due.is_some() || f.overdue || f.closed.is_some();
+    let implies_todo = f.status.is_some()
+        || f.due.is_some()
+        || f.priority.is_some()
+        || f.overdue
+        || f.closed.is_some();
     if implies_todo && kind == Some(Kind::Note) {
-        return Err(usage("-s, -d, --overdue and --closed apply only to todos"));
+        return Err(usage(
+            "-s, -d, -p, --overdue and --closed apply only to todos",
+        ));
     }
     let kind = if implies_todo { Some(Kind::Todo) } else { kind };
     if [f.all, f.archived, f.trashed]
@@ -77,9 +83,22 @@ fn query(f: &FilterArgs, kind: Option<Kind>, text: Option<&str>, clock: &Clock) 
         date: range(f.date.as_deref(), clock)?,
         created: range(f.created.as_deref(), clock)?,
         due,
+        priority: f.priority.as_deref().map(priorities).transpose()?,
         closed: range(f.closed.as_deref(), clock)?,
         text,
     })
+}
+
+/// Parses a `-p` value: priorities and `none`, separated by commas.
+fn priorities(s: &str) -> Result<Vec<Option<u8>>> {
+    s.split(',')
+        .map(|p| match p.trim() {
+            "none" => Ok(None),
+            p => parse_priority(p)
+                .map(Some)
+                .ok_or_else(|| usage(format!("invalid priority '{p}': use 1, 2, 3 or none"))),
+        })
+        .collect()
 }
 
 /// Limits and prints groups of items. Returns the number of items printed.

@@ -117,6 +117,7 @@ pub fn run(argv: Vec<OsString>) -> Result<()> {
         Command::Title(c) => meta::title(&app()?, c),
         Command::Due(c) => meta::date(&app()?, DateField::Due, c),
         Command::Date(c) => meta::date(&app()?, DateField::Date, c),
+        Command::Priority(c) => meta::priority(&app()?, c),
         Command::Tag { action } => match action {
             TagAction::Add(t) => meta::tag(&app()?, true, t),
             TagAction::Rm(t) => meta::tag(&app()?, false, t),

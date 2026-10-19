@@ -21,6 +21,9 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     if kind == Kind::Note && c.due.is_some() {
         return Err(usage("-d applies only to todos"));
     }
+    if kind == Kind::Note && c.priority.is_some() {
+        return Err(usage("-p applies only to todos"));
+    }
     let tmpl = template::load(app, kind, c.template.as_deref())?;
     let mut tag_list = app.cfg.default_tags.clone();
     if let Some(t) = &tmpl {
@@ -39,6 +42,11 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
             Some(t) => t.due(&app.clock)?,
             None => None,
         },
+    };
+    let priority = match (c.priority, &tmpl) {
+        (Some(p), _) => Some(p),
+        (None, Some(t)) => t.priority()?,
+        (None, None) => None,
     };
     if due.is_some_and(|d| d < app.clock.today) {
         warn("the due date is in the past");
@@ -65,6 +73,9 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     doc.set("date", Value::Str(format_iso(date)), false);
     if let Some(d) = due {
         doc.set("due", Value::Str(format_iso(d)), false);
+    }
+    if let Some(p) = priority {
+        doc.set("priority", Value::Str(p.to_string()), false);
     }
     doc.set("tags", tags::to_value(&tag_list), true);
     if let Some(t) = &tmpl {

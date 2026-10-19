@@ -7,7 +7,7 @@ use crate::app::App;
 use crate::dates::{Clock, format_iso, parse_date, weekday_short};
 use crate::error::{Error, Result, general, usage};
 use crate::frontmatter::{Doc, MANAGED};
-use crate::item::Kind;
+use crate::item::{Kind, parse_priority};
 use crate::tags;
 
 pub struct Template {
@@ -17,11 +17,14 @@ pub struct Template {
 }
 
 /// The managed fields that a template can set.
-const MANAGED_IN_TEMPLATE: [&str; 2] = ["due", "tags"];
+const MANAGED_IN_TEMPLATE: [&str; 3] = ["due", "priority", "tags"];
 
 /// The template directories, in order of precedence.
 pub fn dirs(app: &App) -> [PathBuf; 2] {
-    [app.root.join(".templates"), app.cfg.templates_dir(&app.root)]
+    [
+        app.root.join(".templates"),
+        app.cfg.templates_dir(&app.root),
+    ]
 }
 
 fn find(app: &App, name: &str) -> Option<PathBuf> {
@@ -64,6 +67,11 @@ pub fn load(app: &App, kind: Kind, opt: Option<&str>) -> Result<Option<Template>
             "template '{name}' sets 'due', but a note has no due date"
         )));
     }
+    if kind == Kind::Note && doc.get("priority").is_some() {
+        return Err(usage(format!(
+            "template '{name}' sets 'priority', but a note has no priority"
+        )));
+    }
     Ok(Some(Template {
         name: name.to_string(),
         doc,
@@ -86,6 +94,15 @@ impl Template {
         match self.doc.get_str("due") {
             None | Some("") => Ok(None),
             Some(s) => parse_date(s, clock).map(Some).map_err(|e| self.error(e)),
+        }
+    }
+
+    pub fn priority(&self) -> Result<Option<u8>> {
+        match self.doc.get_str("priority") {
+            None | Some("") => Ok(None),
+            Some(s) => parse_priority(s)
+                .map(Some)
+                .ok_or_else(|| self.error(format!("invalid priority '{s}'"))),
         }
     }
 
