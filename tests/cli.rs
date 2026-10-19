@@ -1,7 +1,9 @@
 use std::fs;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
+use assert_cmd::cargo::CommandCargoExt;
 use tempfile::TempDir;
 
 const NOW: &str = "2026-10-16T12:00:00+11:00";
@@ -32,7 +34,13 @@ impl Env {
     }
 
     fn cmd(&self) -> Command {
-        let mut c = Command::cargo_bin("doen").unwrap();
+        let mut std = std::process::Command::cargo_bin("doen").unwrap();
+        // A new session has no controlling terminal, so /dev/tty can't be opened and prompts
+        // fail instead of waiting on the terminal running the tests.
+        unsafe {
+            std.pre_exec(|| rustix::process::setsid().map(drop).map_err(Into::into));
+        }
+        let mut c = Command::from_std(std);
         c.env_clear()
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", self.dir.path())
