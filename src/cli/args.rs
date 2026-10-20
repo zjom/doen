@@ -89,7 +89,7 @@ pub enum Command {
     Edit(EditCmd),
     /// Change the title
     Title(TitleCmd),
-    /// Set (or with `none`, clear) the scheduled date: the todo is hidden from `ls` until then
+    /// Set (or with `none`, clear) the scheduled (start) date
     Schedule(DateCmd),
     /// Set (or with `none`, clear) the due date
     Due(DateCmd),
@@ -261,7 +261,7 @@ pub struct CreateCmd {
     /// The date of the item (default: today)
     #[arg(short = 'w', long, value_name = "DATE")]
     pub date: Option<String>,
-    /// The day to start the todo; hidden from `ls` until then (todos only)
+    /// The day to start the todo (todos only)
     #[arg(short = 'S', long, value_name = "DATE")]
     pub scheduled: Option<String>,
     /// The due date (todos only)

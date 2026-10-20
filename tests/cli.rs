@@ -476,8 +476,8 @@ fn scheduled() {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    // Hidden from ls until its day, but not from grep or an explicit -S.
-    assert!(!ids(&["ls", "t", "--ids"]).contains(&later));
+    // Never hidden from ls, also before its day.
+    assert!(ids(&["ls", "t", "--ids"]).contains(&later));
     assert_eq!(ids(&["ls", "-S", "+1d..", "--ids"]), later);
     assert_eq!(ids(&["ls", "-S", "none", "--ids"]), plain);
     assert!(ids(&["grep", "later", "--ids"]).contains(&later));

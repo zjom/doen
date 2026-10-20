@@ -55,8 +55,6 @@ pub struct Query {
     pub date: Option<Range>,
     pub created: Option<Range>,
     pub scheduled: Option<Range>,
-    /// Hides the open todos scheduled after today.
-    pub hide_scheduled: bool,
     pub due: Option<Range>,
     /// The accepted priorities. `None` in the list matches todos without a priority.
     pub priority: Option<Vec<Option<u8>>>,
@@ -76,12 +74,6 @@ impl Query {
             return false;
         }
         if !self.tags.accepts(&m.tags) {
-            return false;
-        }
-        if self.hide_scheduled
-            && m.current_status() == Some(Status::Open)
-            && m.scheduled.is_some_and(|d| d > clock.today)
-        {
             return false;
         }
         if self

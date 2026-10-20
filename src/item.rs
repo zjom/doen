@@ -110,7 +110,7 @@ pub struct Meta {
     pub kind: Kind,
     pub created: DateTime<FixedOffset>,
     pub date: NaiveDate,
-    /// The day to start the todo. An open todo is hidden from `doen ls` until this day. Todos only.
+    /// The day to start the todo. Todos only.
     pub scheduled: Option<NaiveDate>,
     pub due: Option<NaiveDate>,
     /// 1 to 3, 3 being the highest. Todos only.

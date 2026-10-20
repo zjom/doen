@@ -127,7 +127,7 @@ doen todo|t <title...> [create-opts]
 | `-t, --tag <tags>` | Sets the tags. Separate the tags with commas. You can give this option more than one time. | note, todo |
 | `-T, --template <name>` | Uses the template `<name>` (see Templates). The value `none` disables the default template. | note, todo |
 | `-w, --date <date>` | Sets the date of the item (see Frontmatter fields). The default value is today. | note, todo |
-| `-S, --scheduled <date>` | Sets the scheduled date: the day to start the todo. `doen ls` hides the todo until that day. | todo only (error for a note) |
+| `-S, --scheduled <date>` | Sets the scheduled date: the day to start the todo. | todo only (error for a note) |
 | `-d, --due <date>` | Sets the due date. | todo only (error for a note) |
 | `-p, --priority <p>` | Sets the priority: `1`, `2` or `3`. `3` is the highest. | todo only (error for a note) |
 | `-e, --edit` | Opens the item in the editor after doen creates the item. | note, todo |
@@ -160,7 +160,6 @@ Three properties decide which items a list includes before doen applies the filt
 - **Kind:** The positional argument `note` or `todo`. If you omit the argument, the list includes both kinds. The options `-s`, `-S`, `-d`, `-p`, `--overdue` and `--closed` apply only to todos. Thus, these options imply `todo`. If you use one of these options with `ls n`, doen shows a usage error.
 - **Place:** The directory that contains the file: the store root, `.archive/` or `.trash/`.
 - **Status:** The `-s` option, for todos only. Notes have no status. The `-s` option does not affect notes.
-- **Scheduled date:** `doen ls` hides an open todo with a `scheduled` date after today. If you give `-S`, doen does not hide any todo, and the `-S` range alone selects by the scheduled date. `grep`, `trash` and `today` do not hide scheduled todos.
 
 | Options | Places that doen searches | Default status |
 | --- | --- | --- |
@@ -181,7 +180,7 @@ An explicit `-s` option always takes precedence over the default status in this 
 | `-x, --exclude-tag <tags>` | Excludes the items that have one or more of these tags. You can give this option more than one time. |
 | `-w, --date <range>` | Filters on the `date` field of the item. |
 | `--created <range>` | Filters on the day of the `created` timestamp, in local time. |
-| `-S, --scheduled <range>` | Filters on the scheduled date. The value `none` matches the todos that have no scheduled date. This option shows the todos that are scheduled after today. For example, `-S +1d..` lists the todos that are hidden now. This option implies `todo`. |
+| `-S, --scheduled <range>` | Filters on the scheduled date. The value `none` matches the todos that have no scheduled date. For example, `-S +1d..` lists the todos that are scheduled after today. This option implies `todo`. |
 | `-d, --due <range>` | Filters on the due date. The value `none` matches the todos that have no due date. This option implies `todo`. |
 | `-p, --priority <p>` | Filters on the priority. Separate the values with commas. The values are `1`, `2`, `3` and `none`. The value `none` matches the todos that have no priority. For example, `-p 2,3` matches the todos with priority 2 or 3. This option implies `todo`. |
 | `--closed <range>` | Filters on the date of the last entry in the status log. This option matches only closed todos. This option implies `todo`. If you do not give `-s`, this option also implies `-s closed`. |
@@ -283,7 +282,7 @@ doen ls n -w M                      # notes this month
 doen -s done --closed 1w            # what I finished in the last 7 days
 doen grep invoice -a                # search root and archive
 doen ls t --overdue --ids | xargs -r doen due tomorrow   # push all overdue to tomorrow
-doen ls t -S +1d..                  # todos scheduled for later (hidden from ls)
+doen ls t -S +1d..                  # todos scheduled for later
 ```
 
 ## Viewing, editing and lifecycle
@@ -498,7 +497,7 @@ $DOEN_NOTES_DIR/
 | `kind` | `note` or `todo` | doen, at creation | Explicit. doen never infers the kind from the heading. Read-only in `doen edit`. |
 | `created` | ISO timestamp | doen, at creation | Never changes. Read-only in `doen edit`. |
 | `date` | ISO date | `-w`, `doen date` | The day that the item is about. For a note, this day is the day of the meeting or of the journal entry. For a todo, this day is the day of capture or the day that is related to the todo. The default value is the day of creation. The `-w` option, sorting and `doen today` use this field. This field never hides or schedules a todo. |
-| `scheduled` | ISO date | `-S`, `doen schedule` | Todos only. Optional. The day to start the todo. `doen ls` hides an open todo until this day, and `doen today` shows it from this day. Separate from `due`, the day by which the todo must be done. |
+| `scheduled` | ISO date | `-S`, `doen schedule` | Todos only. Optional. The day to start the todo. `doen today` shows an open todo from this day. Separate from `due`, the day by which the todo must be done. |
 | `due` | ISO date | `-d`, `doen due` | Todos only. Optional. |
 | `priority` | `1`, `2` or `3` | `-p`, `doen priority` | Todos only. Optional. `3` is the highest. |
 | `tags` | list of quoted strings | `-t`, `doen tag` | doen always writes this field, even if the list is empty. |
@@ -737,7 +736,7 @@ Automatic commits occur if `git_autocommit` is `true` and the store is inside a 
 | --- | --- |
 | Frontmatter format | YAML with `---` delimiters, for compatibility with Obsidian and most Markdown tools. Config files also use YAML. |
 | ID scheme | A random 4-character base36 ID, stored in the frontmatter and in the filename. |
-| Scheduled dates | A `scheduled` field, separate from `due`. `doen ls` hides an open todo until its scheduled day. |
+| Scheduled dates | A `scheduled` field, separate from `due`. `doen today` shows an open todo from its scheduled day. |
 | Deadline dates | Deferred until after version 1. |
 | Archive storage | The `.archive/` directory follows the `archived` field. The frontmatter is the source of truth. |
 | Trash storage | The `.trash/` directory follows the `trashed` field. The age for permanent deletion comes from this field, not from the modification time (mtime) of the file. |
