@@ -89,9 +89,22 @@ fn history(item: &Item) -> String {
         .join(" → ")
 }
 
+/// The display width of `s`, without color codes.
+fn width(s: &str) -> usize {
+    let mut n = 0;
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            chars.by_ref().find(|&c| c == 'm');
+        } else {
+            n += 1;
+        }
+    }
+    n
+}
+
 fn pad(s: &str, w: usize) -> String {
-    let n = s.chars().count();
-    format!("{s}{}", " ".repeat(w.saturating_sub(n)))
+    format!("{s}{}", " ".repeat(w.saturating_sub(width(s))))
 }
 
 fn hashtags(tags: &[String]) -> String {
@@ -128,7 +141,7 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
         0 => i.title().to_string(),
         w => {
             let marks = "!".repeat(i.meta.priority.unwrap_or(0) as usize);
-            format!("{} {}", pad(&marks, w), i.title())
+            format!("{} {}", pad(&app.paint("31", &marks), w), i.title())
         }
     };
     let cell = |i: &Item| match (i.meta.current_status(), &i.meta.heading) {
@@ -155,7 +168,7 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
         .collect();
     let width = |f: fn(&Row) -> usize| groups.iter().flat_map(|(_, r)| r).map(f).max().unwrap_or(0);
     let id_w = width(|r| r.item.id().len());
-    let cell_w = width(|r| r.cell.chars().count());
+    let cell_w = width(|r| self::width(&r.cell));
     let date_w = width(|r| r.date.chars().count());
     for (k, (header, rows)) in groups.iter().enumerate() {
         if k > 0 {
