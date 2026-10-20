@@ -18,13 +18,14 @@ fn range(arg: Option<&str>, clock: &Clock) -> Result<Option<Range>> {
 
 fn query(f: &FilterArgs, kind: Option<Kind>, text: Option<&str>, clock: &Clock) -> Result<Query> {
     let implies_todo = f.status.is_some()
+        || f.scheduled.is_some()
         || f.due.is_some()
         || f.priority.is_some()
         || f.overdue
         || f.closed.is_some();
     if implies_todo && kind == Some(Kind::Note) {
         return Err(usage(
-            "-s, -d, -p, --overdue and --closed apply only to todos",
+            "-s, -S, -d, -p, --overdue and --closed apply only to todos",
         ));
     }
     let kind = if implies_todo { Some(Kind::Todo) } else { kind };
@@ -82,6 +83,8 @@ fn query(f: &FilterArgs, kind: Option<Kind>, text: Option<&str>, clock: &Clock) 
         tags: TagFilter::new(&f.tags.tag, &f.tags.exclude_tag).map_err(usage)?,
         date: range(f.date.as_deref(), clock)?,
         created: range(f.created.as_deref(), clock)?,
+        scheduled: range(f.scheduled.as_deref(), clock)?,
+        hide_scheduled: false,
         due,
         priority: f.priority.as_deref().map(priorities).transpose()?,
         closed: range(f.closed.as_deref(), clock)?,
@@ -121,7 +124,9 @@ fn list(app: &App, q: &Query, output: &OutputArgs) -> Result<usize> {
 }
 
 pub fn ls(app: &App, c: LsCmd) -> Result<()> {
-    let q = query(&c.filter, c.kind, None, &app.clock)?;
+    let mut q = query(&c.filter, c.kind, None, &app.clock)?;
+    // A todo scheduled after today stays out of the way until its day, unless asked for with -S.
+    q.hide_scheduled = q.scheduled.is_none();
     // The banner and the cheatsheet are for people: only on a terminal, never with a machine format.
     let decorate = c.output.format.format() == Format::Human && stdout_is_terminal();
     if decorate && app.cfg.ls_header && !c.no_header {
@@ -180,6 +185,13 @@ pub fn today(app: &App, c: TodayCmd) -> Result<()> {
         .copied()
         .filter(open_todo)
         .filter(|i| i.meta.due == Some(today));
+    // Open todos whose scheduled day has come, and that are not already listed as due.
+    let scheduled = base
+        .iter()
+        .copied()
+        .filter(open_todo)
+        .filter(|i| i.meta.scheduled.is_some_and(|d| d <= today))
+        .filter(|i| i.meta.due.is_none_or(|d| d > today));
     let notes = base
         .iter()
         .copied()
@@ -189,6 +201,7 @@ pub fn today(app: &App, c: TodayCmd) -> Result<()> {
     let groups = vec![
         ("OVERDUE", select(overdue, field, reverse).0),
         ("DUE TODAY", select(due, field, reverse).0),
+        ("SCHEDULED", select(scheduled, field, reverse).0),
         ("NOTES", select(notes, field, reverse).1),
     ];
     print(app, groups, &c.output);

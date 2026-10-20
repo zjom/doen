@@ -18,6 +18,9 @@ use crate::template::{self, build_body};
 
 pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     let title = c.title.join(" ").trim().to_string();
+    if kind == Kind::Note && c.scheduled.is_some() {
+        return Err(usage("-S applies only to todos"));
+    }
     if kind == Kind::Note && c.due.is_some() {
         return Err(usage("-d applies only to todos"));
     }
@@ -36,13 +39,15 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
         Some(s) => parse_date(s, &app.clock).map_err(usage)?,
         None => app.clock.today,
     };
-    let due = match &c.due {
-        Some(s) => Some(parse_date(s, &app.clock).map_err(usage)?),
+    let date_opt = |opt: &Option<String>, key: &str| match opt {
+        Some(s) => parse_date(s, &app.clock).map(Some).map_err(usage),
         None => match &tmpl {
-            Some(t) => t.due(&app.clock)?,
-            None => None,
+            Some(t) => t.date(key, &app.clock),
+            None => Ok(None),
         },
     };
+    let scheduled = date_opt(&c.scheduled, "scheduled")?;
+    let due = date_opt(&c.due, "due")?;
     let priority = match (c.priority, &tmpl) {
         (Some(p), _) => Some(p),
         (None, Some(t)) => t.priority()?,
@@ -71,6 +76,9 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     doc.set("kind", Value::Str(kind.as_str().into()), false);
     doc.set("created", Value::Str(now.to_rfc3339()), false);
     doc.set("date", Value::Str(format_iso(date)), false);
+    if let Some(d) = scheduled {
+        doc.set("scheduled", Value::Str(format_iso(d)), false);
+    }
     if let Some(d) = due {
         doc.set("due", Value::Str(format_iso(d)), false);
     }

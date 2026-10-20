@@ -60,7 +60,7 @@ doen todo|t <title...>   [create-opts]       create a todo
 
 # read
 doen [ls] [filters]                          list (default command)
-doen today                                   agenda: overdue, due today, today's notes
+doen today                                   agenda: overdue, due today, scheduled, today's notes
 doen show|s <id>...                          print to stdout
 doen grep <pattern> [filters]                full-text search (ls -q with its own exit code)
 doen tags [-a]                               list tags with counts
@@ -68,6 +68,7 @@ doen tags [-a]                               list tags with counts
 # edit
 doen edit|e <id>                             open in the editor
 doen title <id> <title...>                   retitle
+doen schedule <date|none> <id>...            set or clear scheduled (start) date
 doen due <date|none> <id>...                 set or clear due date
 doen priority <1-3|none> <id>...             set or clear priority (3 is the highest)
 doen date <date> <id>...                     set the item's date
@@ -126,6 +127,7 @@ doen todo|t <title...> [create-opts]
 | `-t, --tag <tags>` | Sets the tags. Separate the tags with commas. You can give this option more than one time. | note, todo |
 | `-T, --template <name>` | Uses the template `<name>` (see Templates). The value `none` disables the default template. | note, todo |
 | `-w, --date <date>` | Sets the date of the item (see Frontmatter fields). The default value is today. | note, todo |
+| `-S, --scheduled <date>` | Sets the scheduled date: the day to start the todo. `doen ls` hides the todo until that day. | todo only (error for a note) |
 | `-d, --due <date>` | Sets the due date. | todo only (error for a note) |
 | `-p, --priority <p>` | Sets the priority: `1`, `2` or `3`. `3` is the highest. | todo only (error for a note) |
 | `-e, --edit` | Opens the item in the editor after doen creates the item. | note, todo |
@@ -155,9 +157,10 @@ The optional positional kind argument replaces the old `-k` option. `doen ls t` 
 
 Three properties decide which items a list includes before doen applies the filters:
 
-- **Kind:** The positional argument `note` or `todo`. If you omit the argument, the list includes both kinds. The options `-s`, `-d`, `-p`, `--overdue` and `--closed` apply only to todos. Thus, these options imply `todo`. If you use one of these options with `ls n`, doen shows a usage error.
+- **Kind:** The positional argument `note` or `todo`. If you omit the argument, the list includes both kinds. The options `-s`, `-S`, `-d`, `-p`, `--overdue` and `--closed` apply only to todos. Thus, these options imply `todo`. If you use one of these options with `ls n`, doen shows a usage error.
 - **Place:** The directory that contains the file: the store root, `.archive/` or `.trash/`.
 - **Status:** The `-s` option, for todos only. Notes have no status. The `-s` option does not affect notes.
+- **Scheduled date:** `doen ls` hides an open todo with a `scheduled` date after today. If you give `-S`, doen does not hide any todo, and the `-S` range alone selects by the scheduled date. `grep`, `trash` and `today` do not hide scheduled todos.
 
 | Options | Places that doen searches | Default status |
 | --- | --- | --- |
@@ -178,6 +181,7 @@ An explicit `-s` option always takes precedence over the default status in this 
 | `-x, --exclude-tag <tags>` | Excludes the items that have one or more of these tags. You can give this option more than one time. |
 | `-w, --date <range>` | Filters on the `date` field of the item. |
 | `--created <range>` | Filters on the day of the `created` timestamp, in local time. |
+| `-S, --scheduled <range>` | Filters on the scheduled date. The value `none` matches the todos that have no scheduled date. This option shows the todos that are scheduled after today. For example, `-S +1d..` lists the todos that are hidden now. This option implies `todo`. |
 | `-d, --due <range>` | Filters on the due date. The value `none` matches the todos that have no due date. This option implies `todo`. |
 | `-p, --priority <p>` | Filters on the priority. Separate the values with commas. The values are `1`, `2`, `3` and `none`. The value `none` matches the todos that have no priority. For example, `-p 2,3` matches the todos with priority 2 or 3. This option implies `todo`. |
 | `--closed <range>` | Filters on the date of the last entry in the status log. This option matches only closed todos. This option implies `todo`. If you do not give `-s`, this option also implies `-s closed`. |
@@ -192,7 +196,7 @@ An explicit `-s` option always takes precedence over the default status in this 
 
 | Option | Meaning |
 | --- | --- |
-| `--sort <field>` | Sorts the items by a field: `due`, `date`, `created`, `closed`, `title`, `status` or `priority`. The default order for todos is by due date, then by priority (highest first), then by creation time. Sorting by `due` always breaks ties by priority. The default order for notes is by date, with the newest note first. One `--sort` field applies to both groups. The `priority` field sorts the highest priority first. Notes have no `due`, `closed`, `status` or `priority` field, so these four fields sort notes by date. Items that do not have the sort field come last. |
+| `--sort <field>` | Sorts the items by a field: `due`, `scheduled`, `date`, `created`, `closed`, `title`, `status` or `priority`. The default order for todos is by due date, then by priority (highest first), then by creation time. Sorting by `due` always breaks ties by priority. The default order for notes is by date, with the newest note first. One `--sort` field applies to both groups. The `priority` field sorts the highest priority first. Notes have no `due`, `scheduled`, `closed`, `status` or `priority` field, so these five fields sort notes by date. Items that do not have the sort field come last. |
 | `-r, --reverse` | Reverses the sort order. Items that do not have the sort field still come last. |
 | `-n, --limit <N>` | Shows a maximum of N items in total. Todos come first. |
 | `-l, --long` | Shows extra columns: the date, the creation time and the status history. |
@@ -217,7 +221,7 @@ The `--ids` option, the `--porcelain` option and the `--json` option work with t
 
 - The output has no header.
 - Each line contains one item.
-- The columns are, in this order: `id`, `kind`, `status`, `place`, `date`, `due`, `title`, `tags`, `priority`.
+- The columns are, in this order: `id`, `kind`, `status`, `place`, `date`, `due`, `title`, `tags`, `priority`, `scheduled`.
 - The `status` column is empty for notes.
 - The value of the `place` column is `root`, `archive` or `trash`.
 - Dates use the ISO format. If a date is not set, the column is empty.
@@ -260,11 +264,12 @@ The `doen grep` command accepts the same filters and the same scope as `ls`. The
 
 ### The `doen today` command
 
-The `doen today` command shows three groups:
+The `doen today` command shows four groups:
 
 1. Open todos that are overdue.
 2. Open todos that are due today.
-3. Notes that have today as their date.
+3. Open todos with a scheduled date of today or earlier. A todo that is in group 1 or group 2 is not in this group.
+4. Notes that have today as their date.
 
 The command does not show archived items or items in the trash. The command accepts `-t`, `-x` and the output options. For example: `doen today -t work`.
 
@@ -276,6 +281,7 @@ doen ls n -w M                      # notes this month
 doen -s done --closed 1w            # what I finished in the last 7 days
 doen grep invoice -a                # search root and archive
 doen ls t --overdue --ids | xargs -r doen due tomorrow   # push all overdue to tomorrow
+doen ls t -S +1d..                  # todos scheduled for later (hidden from ls)
 ```
 
 ## Viewing, editing and lifecycle
@@ -318,6 +324,7 @@ You can also change metadata without an editor:
 | Command | Effect |
 | --- | --- |
 | `doen title <id> <title...>` | Rewrites the H1 heading. The checkbox does not change. |
+| `doen schedule <date\|none> <id>...` | Sets or removes the `scheduled` field. This command applies only to todos. For a note, the command shows an error. |
 | `doen due <date\|none> <id>...` | Sets or removes the `due` field. This command applies only to todos. For a note, the command shows an error. |
 | `doen date <date> <id>...` | Sets the `date` field. |
 | `doen tag add <tags> <id>...` | Adds the tags. Separate the tags with commas. |
@@ -409,7 +416,7 @@ Relative offsets never start with `-`. Thus, doen cannot mistake an offset for a
 
 ### Storage and display
 
-- doen stores the `date`, `due`, `archived` and `trashed` fields as ISO dates without quotation marks. For example: `due: 2026-10-18`.
+- doen stores the `date`, `scheduled`, `due`, `archived` and `trashed` fields as ISO dates without quotation marks. For example: `due: 2026-10-18`.
 - The `created` field is an ISO 8601 timestamp with a UTC offset. For example: `created: 2026-10-16T21:58:03+11:00`.
 - doen reads every frontmatter scalar as a string and parses the string itself. Thus, YAML type rules never change a value, even in hand-written files. These rules include the YAML 1.1 rules and the YAML 1.2 rules for dates, `no`, `1e10` and `0012`.
 - doen uses the `date_format` config key to display dates. The default value is `%y-%m-%d`.
@@ -489,6 +496,7 @@ $DOEN_NOTES_DIR/
 | `kind` | `note` or `todo` | doen, at creation | Explicit. doen never infers the kind from the heading. Read-only in `doen edit`. |
 | `created` | ISO timestamp | doen, at creation | Never changes. Read-only in `doen edit`. |
 | `date` | ISO date | `-w`, `doen date` | The day that the item is about. For a note, this day is the day of the meeting or of the journal entry. For a todo, this day is the day of capture or the day that is related to the todo. The default value is the day of creation. The `-w` option, sorting and `doen today` use this field. This field never hides or schedules a todo. |
+| `scheduled` | ISO date | `-S`, `doen schedule` | Todos only. Optional. The day to start the todo. `doen ls` hides an open todo until this day, and `doen today` shows it from this day. Separate from `due`, the day by which the todo must be done. |
 | `due` | ISO date | `-d`, `doen due` | Todos only. Optional. |
 | `priority` | `1`, `2` or `3` | `-p`, `doen priority` | Todos only. Optional. `3` is the highest. |
 | `tags` | list of quoted strings | `-t`, `doen tag` | doen always writes this field, even if the list is empty. |
@@ -585,10 +593,10 @@ Templates are Markdown files. doen looks for templates first in `<store>/.templa
 A template can contain frontmatter:
 
 - doen merges the `tags` field of the template with the `-t` tags and the `default_tags` tags.
-- The `-d` option overrides the `due` field of the template.
-- The `due` field can contain a relative date (`due: "+2d"`). doen evaluates the relative date when doen creates the item.
+- The `-S` option overrides the `scheduled` field of the template. The `-d` option overrides the `due` field of the template.
+- The `scheduled` field and the `due` field can contain a relative date (`due: "+2d"`). doen evaluates the relative date when doen creates the item.
 - The `-p` option overrides the `priority` field of the template.
-- If you use a template with a `due` field or a `priority` field for a note, doen shows an error.
+- If you use a template with a `scheduled` field, a `due` field or a `priority` field for a note, doen shows an error.
 - doen copies unknown fields into the new item.
 - The fields that doen manages (`id`, `kind`, `created`, `date`, `archived`, `trashed`, `status`) are errors in a template.
 
@@ -719,7 +727,7 @@ Automatic commits occur if `git_autocommit` is `true` and the store is inside a 
 
 ### Deferred
 
-- **Scheduled dates and deadline dates:** A `scheduled` date (a start date) hides a todo until that day. A `deadline` date is a hard deadline that is separate from `due`. org-mode has both concepts. Review this feature after version 1. The `date` field and the `due` field leave room to add these fields without a migration.
+- **Deadline dates:** A `deadline` date is a hard deadline that is separate from `due`. org-mode has this concept. Review this feature after version 1. The `due` field leaves room to add this field without a migration.
 
 ### Decisions
 
@@ -727,7 +735,8 @@ Automatic commits occur if `git_autocommit` is `true` and the store is inside a 
 | --- | --- |
 | Frontmatter format | YAML with `---` delimiters, for compatibility with Obsidian and most Markdown tools. Config files also use YAML. |
 | ID scheme | A random 4-character base36 ID, stored in the frontmatter and in the filename. |
-| Scheduled dates and deadline dates | Deferred until after version 1. |
+| Scheduled dates | A `scheduled` field, separate from `due`. `doen ls` hides an open todo until its scheduled day. |
+| Deadline dates | Deferred until after version 1. |
 | Archive storage | The `.archive/` directory follows the `archived` field. The frontmatter is the source of truth. |
 | Trash storage | The `.trash/` directory follows the `trashed` field. The age for permanent deletion comes from this field, not from the modification time (mtime) of the file. |
 | Git integration | The `git_autocommit` config key. The default value is `false`. |

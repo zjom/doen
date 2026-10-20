@@ -17,6 +17,7 @@ pub fn porcelain_line(item: &Item) -> String {
         clean(item.title()),
         m.tags.join(","),
         m.priority.map(|p| p.to_string()).unwrap_or_default(),
+        m.scheduled.map(format_iso).unwrap_or_default(),
     ]
     .join("\t")
 }
@@ -218,6 +219,9 @@ pub fn summary(item: &Item, app: &App) -> String {
     }
     if let Some(p) = m.priority {
         parts.push(format!("priority {p}"));
+    }
+    if let Some(d) = m.scheduled {
+        parts.push(format!("scheduled {}", d.format(&app.cfg.date_format)));
     }
     if let Some(d) = m.due {
         parts.push(format!("due {}", d.format(&app.cfg.date_format)));

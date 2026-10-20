@@ -10,8 +10,18 @@ use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust2::scanner::Marker;
 
 /// The fields that doen manages, in the order that doen writes them.
-pub const MANAGED: [&str; 10] = [
-    "id", "kind", "created", "date", "due", "priority", "tags", "archived", "trashed", "status",
+pub const MANAGED: [&str; 11] = [
+    "id",
+    "kind",
+    "created",
+    "date",
+    "scheduled",
+    "due",
+    "priority",
+    "tags",
+    "archived",
+    "trashed",
+    "status",
 ];
 
 #[derive(Clone, Debug, PartialEq)]

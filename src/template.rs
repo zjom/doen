@@ -17,7 +17,7 @@ pub struct Template {
 }
 
 /// The managed fields that a template can set.
-const MANAGED_IN_TEMPLATE: [&str; 3] = ["due", "priority", "tags"];
+const MANAGED_IN_TEMPLATE: [&str; 4] = ["scheduled", "due", "priority", "tags"];
 
 /// The template directories, in order of precedence.
 pub fn dirs(app: &App) -> [PathBuf; 2] {
@@ -62,6 +62,11 @@ pub fn load(app: &App, kind: Kind, opt: Option<&str>) -> Result<Option<Template>
             path.display()
         )));
     }
+    if kind == Kind::Note && doc.get("scheduled").is_some() {
+        return Err(usage(format!(
+            "template '{name}' sets 'scheduled', but a note has no scheduled date"
+        )));
+    }
     if kind == Kind::Note && doc.get("due").is_some() {
         return Err(usage(format!(
             "template '{name}' sets 'due', but a note has no due date"
@@ -90,8 +95,9 @@ impl Template {
         })
     }
 
-    pub fn due(&self, clock: &Clock) -> Result<Option<NaiveDate>> {
-        match self.doc.get_str("due") {
+    /// A date field (`scheduled` or `due`). The value can be a relative date.
+    pub fn date(&self, key: &str, clock: &Clock) -> Result<Option<NaiveDate>> {
+        match self.doc.get_str(key) {
             None | Some("") => Ok(None),
             Some(s) => parse_date(s, clock).map(Some).map_err(|e| self.error(e)),
         }

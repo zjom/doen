@@ -32,6 +32,7 @@ impl StatusFilter {
 #[derive(Clone, Copy, Debug, PartialEq, ValueEnum)]
 pub enum SortField {
     Due,
+    Scheduled,
     Date,
     Created,
     Closed,
@@ -53,6 +54,9 @@ pub struct Query {
     pub tags: TagFilter,
     pub date: Option<Range>,
     pub created: Option<Range>,
+    pub scheduled: Option<Range>,
+    /// Hides the open todos scheduled after today.
+    pub hide_scheduled: bool,
     pub due: Option<Range>,
     /// The accepted priorities. `None` in the list matches todos without a priority.
     pub priority: Option<Vec<Option<u8>>>,
@@ -74,6 +78,12 @@ impl Query {
         if !self.tags.accepts(&m.tags) {
             return false;
         }
+        if self.hide_scheduled
+            && m.current_status() == Some(Status::Open)
+            && m.scheduled.is_some_and(|d| d > clock.today)
+        {
+            return false;
+        }
         if self
             .date
             .as_ref()
@@ -82,6 +92,10 @@ impl Query {
                 .created
                 .as_ref()
                 .is_some_and(|r| !r.contains(Some(clock.local_day(&m.created))))
+            || self
+                .scheduled
+                .as_ref()
+                .is_some_and(|r| m.kind == Kind::Note || !r.contains(m.scheduled))
             || self
                 .due
                 .as_ref()
@@ -123,6 +137,7 @@ fn cmp_field(a: &Item, b: &Item, field: SortField, reverse: bool) -> Ordering {
     let (ma, mb) = (&a.meta, &b.meta);
     match field {
         SortField::Due => cmp_opt(ma.due, mb.due, reverse),
+        SortField::Scheduled => cmp_opt(ma.scheduled, mb.scheduled, reverse),
         SortField::Date => cmp_key(ma.date, mb.date, reverse),
         SortField::Created => cmp_key(ma.created, mb.created, reverse),
         SortField::Closed => cmp_opt(ma.closed_on(), mb.closed_on(), reverse),
@@ -133,7 +148,8 @@ fn cmp_field(a: &Item, b: &Item, field: SortField, reverse: bool) -> Ordering {
     }
 }
 
-/// Sorts a group of items of one kind. Notes have no due date, closed date, status or priority and sort by
+/// Sorts a group of items of one kind. Notes have no scheduled date, due date, closed date, status or
+/// priority and sort by
 /// date instead; by default, the newest notes come first.
 fn sort(items: &mut [&Item], field: Option<SortField>, reverse: bool) {
     let Some(kind) = items.first().map(|i| i.kind()) else {
@@ -143,7 +159,13 @@ fn sort(items: &mut [&Item], field: Option<SortField>, reverse: bool) {
         (None, Kind::Todo) => (SortField::Due, reverse),
         (None, Kind::Note) => (SortField::Date, !reverse),
         (
-            Some(SortField::Due | SortField::Closed | SortField::Status | SortField::Priority),
+            Some(
+                SortField::Scheduled
+                | SortField::Due
+                | SortField::Closed
+                | SortField::Status
+                | SortField::Priority,
+            ),
             Kind::Note,
         ) => (SortField::Date, reverse),
         (Some(f), _) => (f, reverse),

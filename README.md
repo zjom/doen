@@ -52,7 +52,7 @@ Create:
 
 Read:
   [ls] [note|todo] [filters] list (default command)
-  today                      overdue, due today, today's notes
+  today                      overdue, due today, scheduled, today's notes
   show|s <id>...             print items
   grep <pattern> [filters]   full-text search
   tags [-a]                  list tags with counts
@@ -60,6 +60,7 @@ Read:
 Edit:
   edit|e <id>                open in the editor
   title <id> <title...>      change the title
+  schedule <d|none> <id>...  set or clear the scheduled (start) date
   due <date|none> <id>...    set or clear the due date
   priority <p|none> <id>...  set or clear the priority (1-3, 3 highest)
   date <date> <id>...        set the date of the item

@@ -18,7 +18,7 @@ Create:
 
 Read:
   [ls] [note|todo] [filters] list (default command)
-  today                      overdue, due today, today's notes
+  today                      overdue, due today, scheduled, today's notes
   show|s <id>...             print items
   grep <pattern> [filters]   full-text search
   tags [-a]                  list tags with counts
@@ -26,6 +26,7 @@ Read:
 Edit:
   edit|e <id>                open in the editor
   title <id> <title...>      change the title
+  schedule <d|none> <id>...  set or clear the scheduled (start) date
   due <date|none> <id>...    set or clear the due date
   priority <p|none> <id>...  set or clear the priority (1-3, 3 highest)
   date <date> <id>...        set the date of the item
@@ -74,7 +75,7 @@ pub enum Command {
     Todo(CreateCmd),
     /// List items
     Ls(LsCmd),
-    /// Agenda: overdue todos, todos due today, today's notes
+    /// Agenda: overdue todos, todos due today, scheduled todos, today's notes
     Today(TodayCmd),
     /// Print items
     #[command(alias = "s")]
@@ -88,6 +89,8 @@ pub enum Command {
     Edit(EditCmd),
     /// Change the title
     Title(TitleCmd),
+    /// Set (or with `none`, clear) the scheduled date: the todo is hidden from `ls` until then
+    Schedule(DateCmd),
     /// Set (or with `none`, clear) the due date
     Due(DateCmd),
     /// Set the date of the item
@@ -164,6 +167,10 @@ pub struct FilterArgs {
     /// Filter on the day of the created timestamp
     #[arg(long, value_name = "RANGE")]
     pub created: Option<String>,
+    /// Filter on the scheduled date (`none` for no scheduled date). Shows todos scheduled after
+    /// today. Implies todo
+    #[arg(short = 'S', long, value_name = "RANGE")]
+    pub scheduled: Option<String>,
     /// Filter on the due date (`none` for no due date). Implies todo
     #[arg(short = 'd', long, value_name = "RANGE")]
     pub due: Option<String>,
@@ -254,6 +261,9 @@ pub struct CreateCmd {
     /// The date of the item (default: today)
     #[arg(short = 'w', long, value_name = "DATE")]
     pub date: Option<String>,
+    /// The day to start the todo; hidden from `ls` until then (todos only)
+    #[arg(short = 'S', long, value_name = "DATE")]
+    pub scheduled: Option<String>,
     /// The due date (todos only)
     #[arg(short = 'd', long, value_name = "DATE")]
     pub due: Option<String>,

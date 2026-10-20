@@ -22,7 +22,7 @@ _doen() {
     cmds=(
         'note:create a note' 'todo:create a todo' 'ls:list items' 'today:agenda'
         'show:print items' 'grep:full-text search' 'tags:list tags'
-        'edit:open in the editor' 'title:change the title' 'due:set the due date'
+        'edit:open in the editor' 'title:change the title' 'schedule:set the scheduled date' 'due:set the due date'
         'date:set the date' 'priority:set the priority' 'tag:add or remove tags' 'done:mark done' 'drop:mark not doing'
         'reopen:back to open' 'archive:archive' 'unarchive:unarchive' 'rm:move to the trash'
         'restore:restore from the trash' 'trash:list or empty the trash' 'init:create the store'
@@ -38,12 +38,13 @@ _doen() {
         '(-s --status)'{-s,--status}'[status]:status:(open done drop closed any)'
         '*'{-t,--tag}'[tags]:tag:_doen_tags' '*'{-x,--exclude-tag}'[exclude tags]:tag:_doen_tags'
         '(-w --date)'{-w,--date}'[date range]:range:_doen_dates' '--created[created range]:range:_doen_dates'
+        '(-S --scheduled)'{-S,--scheduled}'[scheduled range]:range:_doen_dates'
         '(-d --due)'{-d,--due}'[due range]:range:_doen_dates' '(-p --priority)'{-p,--priority}'[priorities]:priority:_values -s , priority 1 2 3 none'
         '--closed[closed range]:range:_doen_dates'
         '--overdue[overdue todos]' '(-q --query)'{-q,--query}'[text]:text:'
         '(-E --regex)'{-E,--regex}'[regex]' '(-a --all)'{-a,--all}'[include archived]'
         '--archived[only archived]' '--trashed[only trash]'
-        '--sort[sort field]:field:(due date created closed title status priority)' '(-r --reverse)'{-r,--reverse}'[reverse]'
+        '--sort[sort field]:field:(due scheduled date created closed title status priority)' '(-r --reverse)'{-r,--reverse}'[reverse]'
         '(-n --limit)'{-n,--limit}'[limit]:n:' '(-l --long)'{-l,--long}'[long]'
         '--ids[only ids]' '--porcelain[porcelain]' '--json[json]'
     )
@@ -56,13 +57,14 @@ _doen() {
             _arguments $common '(-c --content)'{-c,--content}'[body]:text:' '*'{-t,--tag}'[tags]:tag:_doen_tags' \
                 '(-T --template)'{-T,--template}'[template]:template:(none $(doen __complete templates 2>/dev/null))' \
                 '(-w --date)'{-w,--date}'[date]:date:_doen_dates' '(-d --due)'{-d,--due}'[due]:date:_doen_dates' \
+                '(-S --scheduled)'{-S,--scheduled}'[scheduled]:date:_doen_dates' \
                 '(-p --priority)'{-p,--priority}'[priority]:priority:(1 2 3)' \
                 '(-e --edit)'{-e,--edit}'[edit]' '*:title:' ;;
         ls|grep|trash|today|-*) _arguments $common $filters '--empty[empty the trash]' '--no-header[no banner]' '--no-footer[no cheatsheet]' '*:kind:(note todo)' ;;
         tag) if (( CURRENT == 3 )); then _values 'action' add rm
              elif (( CURRENT == 4 )); then _doen_tags
              else _doen_ids; fi ;;
-        due|date) if (( CURRENT == 3 )); then _doen_dates; else _doen_ids; fi ;;
+        schedule|due|date) if (( CURRENT == 3 )); then _doen_dates; else _doen_ids; fi ;;
         priority) if (( CURRENT == 3 )); then _values 'priority' 1 2 3 none; else _doen_ids; fi ;;
         completion) _values 'shell' bash zsh fish ;;
         help) _describe 'command' cmds ;;

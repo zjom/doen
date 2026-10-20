@@ -110,6 +110,8 @@ pub struct Meta {
     pub kind: Kind,
     pub created: DateTime<FixedOffset>,
     pub date: NaiveDate,
+    /// The day to start the todo. An open todo is hidden from `doen ls` until this day. Todos only.
+    pub scheduled: Option<NaiveDate>,
     pub due: Option<NaiveDate>,
     /// 1 to 3, 3 being the highest. Todos only.
     pub priority: Option<u8>,
@@ -215,6 +217,10 @@ impl Meta {
             None => return Err("missing 'created'".into()),
         };
         let date = date_field(doc, "date")?.ok_or("missing 'date'")?;
+        let scheduled = date_field(doc, "scheduled")?;
+        if scheduled.is_some() && kind == Kind::Note {
+            return Err("a note cannot have 'scheduled'".into());
+        }
         let due = date_field(doc, "due")?;
         if due.is_some() && kind == Kind::Note {
             return Err("a note cannot have 'due'".into());
@@ -270,6 +276,7 @@ impl Meta {
             kind,
             created,
             date,
+            scheduled,
             due,
             priority,
             tags: tag_list,

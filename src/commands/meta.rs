@@ -34,6 +34,7 @@ pub fn title(app: &App, c: TitleCmd) -> Result<()> {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum DateField {
+    Scheduled,
     Due,
     Date,
 }
@@ -41,6 +42,7 @@ pub enum DateField {
 impl DateField {
     fn key(self) -> &'static str {
         match self {
+            DateField::Scheduled => "scheduled",
             DateField::Due => "due",
             DateField::Date => "date",
         }
@@ -48,21 +50,24 @@ impl DateField {
 }
 
 pub fn date(app: &App, field: DateField, c: DateCmd) -> Result<()> {
-    let value = if field == DateField::Due && c.date == "none" {
+    // Only `date` is required; the todo-only fields can be cleared.
+    let todo_only = field != DateField::Date;
+    let value = if todo_only && c.date == "none" {
         None
     } else {
         Some(parse_date(&c.date, &app.clock).map_err(usage)?)
     };
     let mut tx = app.begin()?;
     let idx = resolve_ids(&mut tx.store, &c.id, false)?;
-    if field == DateField::Due
+    if todo_only
         && let Some(&n) = idx
             .iter()
             .find(|&&n| tx.store.items[n].kind() == Kind::Note)
     {
         return Err(usage(format!(
-            "{} is a note: only todos have a due date",
-            tx.store.items[n].id()
+            "{} is a note: only todos have a {} date",
+            tx.store.items[n].id(),
+            field.key()
         )));
     }
     if field == DateField::Due && value.is_some_and(|d| d < app.clock.today) {
@@ -71,6 +76,7 @@ pub fn date(app: &App, field: DateField, c: DateCmd) -> Result<()> {
     for n in idx {
         let item = &mut tx.store.items[n];
         let current = match field {
+            DateField::Scheduled => item.meta.scheduled,
             DateField::Due => item.meta.due,
             DateField::Date => Some(item.meta.date),
         };

@@ -1,5 +1,5 @@
 # fish completion for doen
-set -l cmds note todo ls today show grep tags edit title due date priority tag done drop reopen archive unarchive rm restore trash init check completion help
+set -l cmds note todo ls today show grep tags edit title schedule due date priority tag done drop reopen archive unarchive rm restore trash init check completion help
 complete -c doen -f
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a note -d 'create a note'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a todo -d 'create a todo'
@@ -10,6 +10,7 @@ complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a grep -d 'full-tex
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a tags -d 'list tags'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a edit -d 'open in the editor'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a title -d 'change the title'
+complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a schedule -d 'set the scheduled date'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a due -d 'set the due date'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a date -d 'set the date'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a priority -d 'set the priority'
@@ -31,7 +32,7 @@ complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a help -d 'show hel
 complete -c doen -n "__fish_seen_subcommand_from show edit title done drop reopen archive unarchive rm restore" -a "(doen __complete ids 2>/dev/null)"
 complete -c doen -n "__fish_seen_subcommand_from tag; and __fish_seen_subcommand_from add rm" -a "(doen __complete ids 2>/dev/null)"
 complete -c doen -n "__fish_seen_subcommand_from tag; and not __fish_seen_subcommand_from add rm" -a "add rm"
-complete -c doen -n "__fish_seen_subcommand_from due date" -a "(doen __complete dates 2>/dev/null) (doen __complete ids 2>/dev/null)"
+complete -c doen -n "__fish_seen_subcommand_from schedule due date" -a "(doen __complete dates 2>/dev/null) (doen __complete ids 2>/dev/null)"
 complete -c doen -n "__fish_seen_subcommand_from priority" -a "1 2 3 none (doen __complete ids 2>/dev/null)"
 complete -c doen -n "__fish_seen_subcommand_from completion" -a "bash zsh fish"
 complete -c doen -n "__fish_seen_subcommand_from help" -a "$cmds"
@@ -45,13 +46,14 @@ complete -c doen -s t -l tag -x -a "(doen __complete tags 2>/dev/null)" -d 'tags
 complete -c doen -s x -l exclude-tag -x -a "(doen __complete tags 2>/dev/null)" -d 'exclude tags'
 complete -c doen -s T -l template -x -a "none (doen __complete templates 2>/dev/null)" -d 'template'
 complete -c doen -s w -l date -x -a "(doen __complete dates 2>/dev/null) W M Y LW LM LY" -d 'date'
+complete -c doen -s S -l scheduled -x -a "(doen __complete dates 2>/dev/null) W M Y LW LM LY" -d 'scheduled date'
 complete -c doen -s d -l due -x -a "(doen __complete dates 2>/dev/null) W M Y LW LM LY" -d 'due date'
 complete -c doen -l on -x -a "(doen __complete dates 2>/dev/null)" -d 'date of the status change'
 complete -c doen -l closed -x -a "(doen __complete dates 2>/dev/null) W M Y LW LM LY" -d 'closed range'
 complete -c doen -l created -x -a "(doen __complete dates 2>/dev/null) W M Y LW LM LY" -d 'created range'
 complete -c doen -s p -l priority -x -a '1 2 3 none' -d 'priority (3 highest)'
 complete -c doen -s s -l status -x -a 'open done drop closed any' -d 'status'
-complete -c doen -l sort -x -a 'due date created closed title status priority' -d 'sort field'
+complete -c doen -l sort -x -a 'due scheduled date created closed title status priority' -d 'sort field'
 complete -c doen -s c -l content -x -d 'body text'
 complete -c doen -s q -l query -x -d 'text'
 complete -c doen -s n -l limit -x -d 'limit'

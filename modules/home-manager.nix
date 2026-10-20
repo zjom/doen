@@ -79,6 +79,7 @@ in
           default_tags = opt (lib.types.listOf lib.types.str) "Tags added to every new item. doen default: none.";
           default_sort = opt (lib.types.enum [
             "due"
+            "scheduled"
             "date"
             "created"
             "closed"

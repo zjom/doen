@@ -353,7 +353,7 @@ fn porcelain_format() {
     let id = e.id(&["t", "call", "bank", "-d", "26-10-18", "-t", "admin,x"]);
     assert_eq!(
         e.ok(&["ls", "--porcelain"]),
-        format!("{id}\ttodo\topen\troot\t2026-10-16\t2026-10-18\tcall bank\tadmin,x\t\n")
+        format!("{id}\ttodo\topen\troot\t2026-10-16\t2026-10-18\tcall bank\tadmin,x\t\t\n")
     );
 }
 
@@ -405,7 +405,7 @@ fn priorities() {
     assert!(out.contains("[ ] !   low"), "{out}");
     assert!(out.contains("[ ] !!! high"), "{out}");
     assert!(out.contains("[ ]     none"), "{out}");
-    assert!(e.ok(&["ls", "--porcelain", "-p", "1"]).ends_with("\t1\n"));
+    assert!(e.ok(&["ls", "--porcelain", "-p", "1"]).ends_with("\t1\t\n"));
     assert!(e.ok(&["show", &high]).contains("· open · priority 3 ·"));
 
     e.ok(&["priority", "2", &low, &none]);
@@ -416,6 +416,80 @@ fn priorities() {
     assert!(!e.read(&low).contains("priority"));
     assert_eq!(e.run(&["priority", "2", &note]).code, 2);
     assert_eq!(e.run(&["priority", "5", &high]).code, 2);
+}
+
+#[test]
+fn scheduled() {
+    let e = Env::new();
+    let later = e.id(&["t", "later", "-S", "+2d", "-d", "+5d"]);
+    let started = e.id(&["t", "started", "-S", "1d"]);
+    let due = e.id(&["t", "due", "-S", "2d", "-d", "today"]);
+    let plain = e.id(&["t", "plain"]);
+    let note = e.id(&["n", "a note"]);
+    let text = e.read(&later);
+    assert!(
+        text.contains("date: 2026-10-16\nscheduled: 2026-10-18\ndue: 2026-10-21\ntags:"),
+        "{text}"
+    );
+    assert_eq!(e.run(&["n", "x", "-S", "today"]).code, 2);
+
+    let ids = |args: &[&str]| {
+        e.ok(args)
+            .split_whitespace()
+            .map(String::from)
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    // Hidden from ls until its day, but not from grep or an explicit -S.
+    assert!(!ids(&["ls", "t", "--ids"]).contains(&later));
+    assert_eq!(ids(&["ls", "-S", "+1d..", "--ids"]), later);
+    assert_eq!(ids(&["ls", "-S", "none", "--ids"]), plain);
+    assert!(ids(&["grep", "later", "--ids"]).contains(&later));
+    assert_eq!(
+        ids(&["ls", "t", "-S", "W", "--sort", "scheduled", "-r", "--ids"]),
+        [&later, &started, &due].map(String::as_str).join(" ")
+    );
+    assert_eq!(e.run(&["ls", "n", "-S", "W"]).code, 2);
+
+    let out = e.ok(&["today"]);
+    assert!(
+        out.contains("DUE TODAY") && out.contains("SCHEDULED"),
+        "{out}"
+    );
+    let scheduled = out.split("SCHEDULED").nth(1).unwrap();
+    assert!(
+        scheduled.contains("started") && !scheduled.contains(" due"),
+        "{out}"
+    );
+    assert!(!out.contains("later"), "{out}");
+
+    assert!(
+        e.ok(&["show", &later])
+            .contains("· open · scheduled 26-10-18 · due 26-10-21")
+    );
+    assert!(
+        e.ok(&["ls", "--porcelain", "-S", "+1d.."])
+            .ends_with("\t2026-10-18\n")
+    );
+
+    // The day comes: the todo shows up.
+    let mut e = e;
+    e.now = "2026-10-18T09:00:00+11:00".into();
+    assert!(e.ok(&["ls", "t", "--ids"]).contains(&later));
+    assert!(e.ok(&["today"]).contains("later"));
+
+    e.ok(&["schedule", "+3d", &later, &plain]);
+    assert!(e.read(&plain).contains("scheduled: 2026-10-21\n"));
+    let o = e.run(&["schedule", "+3d", &plain]);
+    assert!(o.code == 0 && o.stderr.contains("already"), "{}", o.stderr);
+    e.ok(&["schedule", "none", &plain]);
+    assert!(!e.read(&plain).contains("scheduled"));
+    let o = e.run(&["schedule", "today", &note]);
+    assert!(
+        o.code == 2 && o.stderr.contains("scheduled date"),
+        "{}",
+        o.stderr
+    );
 }
 
 #[test]
@@ -500,7 +574,7 @@ fn templates() {
     .unwrap();
     fs::write(
         e.store().join(".templates/todo.md"),
-        "---\ndue: \"+2d\"\npriority: 2\n---\n## steps\n",
+        "---\nscheduled: \"+1d\"\ndue: \"+2d\"\npriority: 2\n---\n## steps\n",
     )
     .unwrap();
     fs::write(e.store().join(".doen.yaml"), "default_tags: [inbox]\n").unwrap();
@@ -510,7 +584,8 @@ fn templates() {
     let id = e.id(&["t", "plan"]);
     let text = e.read(&id);
     assert!(
-        text.contains("due: 2026-10-18\npriority: 2\n") && text.ends_with("# [ ] plan\n## steps\n"),
+        text.contains("scheduled: 2026-10-17\ndue: 2026-10-18\npriority: 2\n")
+            && text.ends_with("# [ ] plan\n## steps\n"),
         "{text}"
     );
     let id = e.id(&["t", "plan", "-p", "3"]);

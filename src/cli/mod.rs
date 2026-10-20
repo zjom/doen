@@ -115,6 +115,7 @@ pub fn run(argv: Vec<OsString>) -> Result<()> {
         Command::Tags(c) => tags::run(&app()?, c),
         Command::Edit(c) => edit::run(&app()?, c),
         Command::Title(c) => meta::title(&app()?, c),
+        Command::Schedule(c) => meta::date(&app()?, DateField::Scheduled, c),
         Command::Due(c) => meta::date(&app()?, DateField::Due, c),
         Command::Date(c) => meta::date(&app()?, DateField::Date, c),
         Command::Priority(c) => meta::priority(&app()?, c),
