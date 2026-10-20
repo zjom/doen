@@ -239,10 +239,10 @@ The `--ids` option, the `--porcelain` option and the `--json` option work with t
 
 Todos come first, then notes.
 
-- For todos, three date columns show the `scheduled` field, the `due` field and the creation day (`created`), in this order. If a field is not set, the cell is blank. If no item in the list has a value for a column, doen omits the column.
-- For notes, the date column shows the `date` field, under the `created` column of todos.
+- For todos, two date columns show the `scheduled` field and the `due` field, in this order. If a field is not set, the cell is blank. If no item in the list has a value for a column, doen omits the column.
+- For notes, the date column shows the `date` field, after the `due` column of todos.
 - The header line of each group shows the labels of the date columns above the columns.
-- With `-l`, the `created` column shows the creation time, and the columns `date` and `status` follow the `created` column. The `status` column shows the status history. The `created` column and the `date` column of notes line up with the same columns of todos.
+- With `-l`, the `created` column shows the creation time after the `due` column, and the columns `date` and `status` follow the `created` column. The `status` column shows the status history. The `created` column and the `date` column of notes line up with the same columns of todos.
 - If a date is within `relative_days` days of today, doen shows the date as a relative date. The default value of `relative_days` is 7.
 - doen highlights overdue todos.
 - doen shows the priority of a todo as `!`, `!!` or `!!!` before the title. The priority column is present only if one or more items in the list have a priority.
@@ -250,10 +250,10 @@ Todos come first, then notes.
 In the example that follows, today is Friday, 2026-10-16:
 
 ```
-TODOS                    scheduled  due         created
-  w8ej  [ ] pay invoice             3d overdue  3d ago     #admin
-  m2xa  [ ] buy milk                today       today      #home
-  k3f9  [ ] call bank    today      sun (+2d)   yesterday  #admin
+TODOS                    scheduled  due
+  w8ej  [ ] pay invoice             3d overdue  #admin
+  m2xa  [ ] buy milk                today       #home
+  k3f9  [ ] call bank    today      sun (+2d)   #admin
 
 NOTES                                           date
   a7q2  standup                                 today      #work

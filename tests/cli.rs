@@ -146,12 +146,11 @@ fn default_list() {
     let lines: Vec<&str> = out.lines().collect();
     // Each date sits under its label.
     let col = |line: &str, s: &str| line.find(s).unwrap();
-    assert!(lines[0].starts_with("TODOS") && lines[0].ends_with("created"));
+    assert!(lines[0].starts_with("TODOS") && lines[0].ends_with("due"));
     assert!(col(lines[0], "scheduled") < col(lines[0], "due"));
-    assert!(col(lines[0], "due") < col(lines[0], "created"));
     assert!(
         lines[1].contains("[ ] pay invoice")
-            && col(lines[1], "today") == col(lines[0], "created")
+            && !lines[1].contains("today")
             && col(lines[1], "3d overdue") == col(lines[0], "due")
             && lines[1].ends_with("#admin")
     );
@@ -163,9 +162,9 @@ fn default_list() {
     );
     assert_eq!(lines[4], "");
     assert!(lines[5].starts_with("NOTES") && lines[5].ends_with("date"));
-    assert_eq!(col(lines[5], "date"), col(lines[0], "created"));
-    assert_eq!(col(lines[6], "today"), col(lines[0], "created"));
-    assert_eq!(col(lines[7], "yesterday"), col(lines[0], "created"));
+    assert!(col(lines[5], "date") > col(lines[0], "due"));
+    assert_eq!(col(lines[6], "today"), col(lines[5], "date"));
+    assert_eq!(col(lines[7], "yesterday"), col(lines[5], "date"));
 }
 
 #[test]
@@ -212,14 +211,14 @@ fn ls_header_and_footer() {
     };
     let out = tty(&["ls"], "");
     assert!(out.starts_with(&format!("{}██████╗  ██████╗", " ".repeat(24))));
-    assert!(out.contains("TODOS  ") && out.contains("created\n  "));
+    assert!(out.contains("TODOS\n  "));
     assert!(out.contains("\n❯ doen · doen t <title> · "));
     assert!(out.trim_end().ends_with("· doen help"));
     assert!(tty(&[], "").contains("██████╗  ██████╗"));
     assert!(tty(&["ls", "--no-header"], "").starts_with("TODOS"));
     assert!(!tty(&["ls", "--no-footer"], "").contains("❯ doen"));
     let plain = tty(&["ls", "--no-header", "--no-footer"], "");
-    assert!(plain.starts_with("TODOS") && plain.trim_end().ends_with("[ ] pay invoice  today"));
+    assert!(plain.starts_with("TODOS") && plain.trim_end().ends_with("[ ] pay invoice"));
     assert_eq!(tty(&["ls"], "ls_header: false\nls_footer: false\n"), plain);
     assert_eq!(tty(&["ls", "--ids"], "").lines().count(), 1);
     assert!(!tty(&["today"], "").contains("██████╗"));

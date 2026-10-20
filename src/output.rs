@@ -71,15 +71,14 @@ fn date_labels(kind: Kind, long: bool) -> &'static [&'static str] {
     match (kind, long) {
         (Kind::Note, false) => &["", "", "date"],
         (Kind::Note, true) => &["", "", "created", "date"],
-        (Kind::Todo, false) => &["scheduled", "due", "created"],
+        (Kind::Todo, false) => &["scheduled", "due"],
         (Kind::Todo, true) => &["scheduled", "due", "created", "date", "status"],
     }
 }
 
-/// The date columns of a list row. Todos show the scheduled date, the due date and the creation
-/// day. Notes show the `date` field in the creation column of todos. `long` replaces the creation
-/// day with the creation time and adds the date and the status history. With `long`, the
-/// creation time and the date of both kinds line up.
+/// The date columns of a list row. Todos show the scheduled date and the due date. Notes show the
+/// `date` field in the column after the due date. `long` adds the creation time, the date and the
+/// status history of todos. With `long`, the creation time and the date of both kinds line up.
 fn date_cells(item: &Item, app: &App, long: bool) -> Vec<String> {
     let show = |d: NaiveDate, overdue: bool| {
         display(
@@ -91,14 +90,11 @@ fn date_cells(item: &Item, app: &App, long: bool) -> Vec<String> {
         )
     };
     let m = &item.meta;
-    let created = if long {
-        m.created
-            .with_timezone(app.clock.now.offset())
-            .format(&format!("{} %H:%M", app.cfg.date_format))
-            .to_string()
-    } else {
-        show(app.clock.local_day(&m.created), false)
-    };
+    let created = m
+        .created
+        .with_timezone(app.clock.now.offset())
+        .format(&format!("{} %H:%M", app.cfg.date_format))
+        .to_string();
     match item.kind() {
         Kind::Note if long => vec![String::new(), String::new(), created, show(m.date, false)],
         Kind::Note => vec![String::new(), String::new(), show(m.date, false)],
@@ -108,9 +104,9 @@ fn date_cells(item: &Item, app: &App, long: bool) -> Vec<String> {
                 m.due
                     .map(|d| show(d, is_overdue(item, app)))
                     .unwrap_or_default(),
-                created,
             ];
             if long {
+                cells.push(created);
                 cells.push(show(m.date, false));
                 cells.push(history(item));
             }
