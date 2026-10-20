@@ -29,3 +29,21 @@ pub fn ask(prompt: &str) -> std::io::Result<String> {
     BufReader::new(tty).read_line(&mut line)?;
     Ok(line)
 }
+
+/// The width of the terminal: `$COLUMNS`, then the size of the terminal on stdout.
+pub fn width() -> Option<usize> {
+    if let Some(n) = std::env::var("COLUMNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+    {
+        return Some(n);
+    }
+    #[cfg(unix)]
+    if let Ok(size) = rustix::termios::tcgetwinsize(std::io::stdout())
+        && size.ws_col > 0
+    {
+        return Some(size.ws_col.into());
+    }
+    None
+}

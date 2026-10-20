@@ -195,6 +195,21 @@ fn long_list() {
 }
 
 #[test]
+fn long_titles_fit_the_terminal() {
+    let e = Env::new();
+    let title = "a todo title long enough to run past the edge of a narrow terminal";
+    let id = e.id(&["t", title, "-t", "work"]);
+    let out = e.cmd().arg("ls").env("COLUMNS", "50").output().unwrap();
+    let out = String::from_utf8(out.stdout).unwrap();
+    assert!(out.contains(&format!(
+        "  {id}  [ ] a todo title long enough to ru…  #work\n"
+    )));
+    assert!(out.lines().all(|l| l.chars().count() <= 50));
+    // Without a terminal, titles are whole.
+    assert!(e.ok(&["ls"]).contains(title));
+}
+
+#[test]
 fn ls_header_and_footer() {
     let e = Env::new();
     e.ok(&["t", "pay", "invoice"]);

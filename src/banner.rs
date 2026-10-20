@@ -1,6 +1,7 @@
 //! The header and the footer of `doen ls`.
 
 use crate::app::App;
+use crate::term;
 
 const BANNER: &str = "do it";
 
@@ -62,22 +63,9 @@ fn paint_row(app: &App, row: &str) -> String {
     out
 }
 
-/// The width of the terminal: `$COLUMNS`, then the size of the terminal on stdout, then 80.
+/// The width of the terminal, or 80.
 fn terminal_width() -> usize {
-    if let Some(n) = std::env::var("COLUMNS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .filter(|&n| n > 0)
-    {
-        return n;
-    }
-    #[cfg(unix)]
-    if let Ok(size) = rustix::termios::tcgetwinsize(std::io::stdout())
-        && size.ws_col > 0
-    {
-        return size.ws_col.into();
-    }
-    80
+    term::width().unwrap_or(80)
 }
 
 /// Prints a horizontal rule across the terminal.

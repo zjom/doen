@@ -3,6 +3,7 @@ use chrono::NaiveDate;
 use crate::app::App;
 use crate::dates::{display, format_iso};
 use crate::item::{Item, Kind, Status};
+use crate::term;
 
 pub fn porcelain_line(item: &Item) -> String {
     let m = &item.meta;
@@ -138,6 +139,33 @@ fn width(s: &str) -> usize {
     n
 }
 
+/// Cuts `s` to at most `w` columns, ending it with `…` if it is cut. Color codes are kept.
+fn truncate(s: &str, w: usize) -> String {
+    if width(s) <= w {
+        return s.to_string();
+    }
+    let keep = w.saturating_sub(1);
+    let mut out = String::new();
+    let mut n = 0;
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            out.push(c);
+            for c in chars.by_ref() {
+                out.push(c);
+                if c == 'm' {
+                    break;
+                }
+            }
+        } else if n < keep {
+            out.push(c);
+            n += 1;
+        }
+    }
+    out.truncate(out.trim_end().len());
+    out + if w > 0 { "…" } else { "" }
+}
+
 fn pad(s: &str, w: usize) -> String {
     format!("{s}{}", " ".repeat(w.saturating_sub(width(s))))
 }
@@ -203,7 +231,7 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
         .collect();
     let width = |f: fn(&Row) -> usize| groups.iter().flat_map(|(_, r)| r).map(f).max().unwrap_or(0);
     let id_w = width(|r| r.item.id().len());
-    let cell_w = width(|r| self::width(&r.cell));
+    let mut cell_w = width(|r| self::width(&r.cell));
     // The width of each date column, including its labels. A column that is blank in every row
     // takes no space.
     let n_dates = width(|r| r.dates.len());
@@ -223,6 +251,22 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
             }
         })
         .collect();
+    // On a terminal, the title column takes the width the other columns leave, but not less
+    // than `MIN_CELL_W`. Longer titles end with `…`.
+    const MIN_CELL_W: usize = 20;
+    if let Some(term_w) = term::width() {
+        let tags_w = width(|r| self::width(&hashtags(&r.item.meta.tags)));
+        let others: usize = 2
+            + id_w
+            + 2
+            + date_ws
+                .iter()
+                .filter(|&&w| w > 0)
+                .map(|w| w + 2)
+                .sum::<usize>()
+            + if tags_w > 0 { tags_w + 2 } else { 0 };
+        cell_w = cell_w.min(term_w.saturating_sub(others).max(MIN_CELL_W));
+    }
     for (k, (header, rows)) in groups.iter().enumerate() {
         if k > 0 {
             println!();
@@ -240,7 +284,10 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
             dates,
         } in rows
         {
-            let mut cols = vec![app.paint("33", &pad(i.id(), id_w)), pad(cell, cell_w)];
+            let mut cols = vec![
+                app.paint("33", &pad(i.id(), id_w)),
+                pad(&truncate(cell, cell_w), cell_w),
+            ];
             for (n, &w) in date_ws.iter().enumerate().filter(|&(_, &w)| w > 0) {
                 let date = pad(dates.get(n).map_or("", |d| d), w);
                 cols.push(if n == 1 && is_overdue(i, app) {
