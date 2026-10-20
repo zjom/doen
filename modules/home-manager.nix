@@ -85,6 +85,7 @@ in
             "closed"
             "title"
             "status"
+            "priority"
           ]) "The default sort field of `doen ls`. doen default: not set.";
           archive_closed = opt lib.types.bool "Archive a todo when it is done or dropped. doen default: true.";
           trash_days = opt lib.types.ints.unsigned "Days before doen deletes an item in the trash. doen default: 30.";
