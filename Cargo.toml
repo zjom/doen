@@ -1,6 +1,6 @@
 [package]
 name = "doen"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 description = "cli to get shit doen"
 repository = "https://github.com/zjom/doen"
@@ -18,8 +18,8 @@ yaml-rust2 = "0.13.0"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
-serde_json = "1.0.154"
 rustix = { version = "1.1.5", features = ["process"] }
+serde_json = "1.0.154"
 
 [target."cfg(unix)".dependencies]
 rustix = { version = "1.1.5", features = ["termios"] }
