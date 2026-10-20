@@ -199,7 +199,7 @@ An explicit `-s` option always takes precedence over the default status in this 
 | `--sort <field>` | Sorts the items by a field: `due`, `scheduled`, `date`, `created`, `closed`, `title`, `status` or `priority`. The default order for todos is by due date, then by priority (highest first), then by creation time. Sorting by `due` always breaks ties by priority. The default order for notes is by date, with the newest note first. One `--sort` field applies to both groups. The `priority` field sorts the highest priority first. Notes have no `due`, `scheduled`, `closed`, `status` or `priority` field, so these five fields sort notes by date. Items that do not have the sort field come last. |
 | `-r, --reverse` | Reverses the sort order. Items that do not have the sort field still come last. |
 | `-n, --limit <N>` | Shows a maximum of N items in total. Todos come first. |
-| `-l, --long` | Shows extra columns: the date, the creation time and the status history. |
+| `-l, --long` | Shows the creation time instead of the creation day, and adds two columns: the date and the status history. The notes use the same columns as the todos. |
 | `--ids` | Prints only the IDs, one ID on each line. Use this option to send the IDs to other commands through a pipe. |
 | `--porcelain` | Prints a stable output format with tab-separated columns (see Porcelain and JSON). |
 | `--json` | Prints a JSON array of items (see Porcelain and JSON). |
@@ -239,8 +239,10 @@ The `--ids` option, the `--porcelain` option and the `--json` option work with t
 
 Todos come first, then notes.
 
-- For todos, the date column shows the `due` field. If the `due` field is not set, the column is blank.
-- For notes, the date column shows the `date` field.
+- For todos, three date columns show the `scheduled` field, the `due` field and the creation day (`created`), in this order. If a field is not set, the cell is blank. If no item in the list has a value for a column, doen omits the column.
+- For notes, the date column shows the `date` field, under the `created` column of todos.
+- The header line of each group shows the labels of the date columns above the columns.
+- With `-l`, the `created` column shows the creation time, and the columns `date` and `status` follow the `created` column. The `status` column shows the status history. The `created` column and the `date` column of notes line up with the same columns of todos.
 - If a date is within `relative_days` days of today, doen shows the date as a relative date. The default value of `relative_days` is 7.
 - doen highlights overdue todos.
 - doen shows the priority of a todo as `!`, `!!` or `!!!` before the title. The priority column is present only if one or more items in the list have a priority.
@@ -248,14 +250,14 @@ Todos come first, then notes.
 In the example that follows, today is Friday, 2026-10-16:
 
 ```
-TODOS
-  w8ej  [ ] pay invoice           3d overdue    #admin
-  m2xa  [ ] buy milk              today         #home
-  k3f9  [ ] call bank             sun (+2d)     #admin
+TODOS                    scheduled  due         created
+  w8ej  [ ] pay invoice             3d overdue  3d ago     #admin
+  m2xa  [ ] buy milk                today       today      #home
+  k3f9  [ ] call bank    today      sun (+2d)   yesterday  #admin
 
-NOTES
-  a7q2  standup                   today         #work
-  r4nd  release notes             yesterday     #work
+NOTES                                           date
+  a7q2  standup                                 today      #work
+  r4nd  release notes                           yesterday  #work
 ```
 
 ### The `doen grep` command

@@ -139,23 +139,60 @@ fn default_list() {
     let e = Env::new();
     e.ok(&["t", "pay", "invoice", "-d", "3d", "-t", "admin"]);
     e.ok(&["t", "buy", "milk", "-d", "today", "-t", "home"]);
-    e.ok(&["t", "call", "bank", "-d", "sun", "-t", "admin"]);
+    e.ok(&["t", "call", "bank", "-d", "sun", "-S", "1d", "-t", "admin"]);
     e.ok(&["n", "standup", "-t", "work"]);
     e.ok(&["n", "release", "notes", "-w", "1d", "-t", "work"]);
     let out = e.ok(&[]);
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines[0], "TODOS");
+    // Each date sits under its label.
+    let col = |line: &str, s: &str| line.find(s).unwrap();
+    assert!(lines[0].starts_with("TODOS") && lines[0].ends_with("created"));
+    assert!(col(lines[0], "scheduled") < col(lines[0], "due"));
+    assert!(col(lines[0], "due") < col(lines[0], "created"));
     assert!(
         lines[1].contains("[ ] pay invoice")
-            && lines[1].contains("3d overdue")
+            && col(lines[1], "today") == col(lines[0], "created")
+            && col(lines[1], "3d overdue") == col(lines[0], "due")
             && lines[1].ends_with("#admin")
     );
-    assert!(lines[2].contains("buy milk") && lines[2].contains("today"));
-    assert!(lines[3].contains("call bank") && lines[3].contains("sun (+2d)"));
+    assert!(lines[2].contains("buy milk") && lines[2].find("today") == lines[0].find("due"));
+    assert!(
+        lines[3].contains("call bank")
+            && col(lines[3], "yesterday") == col(lines[0], "scheduled")
+            && col(lines[3], "sun (+2d)") == col(lines[0], "due")
+    );
     assert_eq!(lines[4], "");
-    assert_eq!(lines[5], "NOTES");
-    assert!(lines[6].contains("standup") && lines[6].contains("today"));
-    assert!(lines[7].contains("release notes") && lines[7].contains("yesterday"));
+    assert!(lines[5].starts_with("NOTES") && lines[5].ends_with("date"));
+    assert_eq!(col(lines[5], "date"), col(lines[0], "created"));
+    assert_eq!(col(lines[6], "today"), col(lines[0], "created"));
+    assert_eq!(col(lines[7], "yesterday"), col(lines[0], "created"));
+}
+
+#[test]
+fn long_list() {
+    let e = Env::new();
+    let id = e.id(&["t", "pay", "invoice"]);
+    e.ok(&["done", &id]);
+    e.ok(&["reopen", &id]);
+    e.ok(&["n", "standup", "-w", "1d"]);
+    let out = e.ok(&["ls", "-l"]);
+    let lines: Vec<&str> = out.lines().collect();
+    let col = |line: &str, s: &str| line.find(s).unwrap();
+    assert!(
+        lines[0].starts_with("TODOS") && lines[0].ends_with("status"),
+        "{out}"
+    );
+    assert!(!lines[0].contains("scheduled"), "{out}");
+    assert_eq!(col(lines[1], "26-10-16 "), col(lines[0], "created"));
+    assert_eq!(col(lines[1], "today"), col(lines[0], "date"));
+    assert_eq!(
+        col(lines[1], "done 10-16 → open 10-16"),
+        col(lines[0], "status")
+    );
+    assert!(lines[3].starts_with("NOTES") && lines[3].ends_with("date"));
+    assert_eq!(col(lines[3], "created"), col(lines[0], "created"));
+    assert_eq!(col(lines[3], "date"), col(lines[0], "date"));
+    assert_eq!(col(lines[4], "yesterday"), col(lines[0], "date"));
 }
 
 #[test]
@@ -175,14 +212,14 @@ fn ls_header_and_footer() {
     };
     let out = tty(&["ls"], "");
     assert!(out.starts_with(&format!("{}██████╗  ██████╗", " ".repeat(24))));
-    assert!(out.contains("TODOS\n  "));
+    assert!(out.contains("TODOS  ") && out.contains("created\n  "));
     assert!(out.contains("\n❯ doen · doen t <title> · "));
     assert!(out.trim_end().ends_with("· doen help"));
     assert!(tty(&[], "").contains("██████╗  ██████╗"));
     assert!(tty(&["ls", "--no-header"], "").starts_with("TODOS"));
     assert!(!tty(&["ls", "--no-footer"], "").contains("❯ doen"));
     let plain = tty(&["ls", "--no-header", "--no-footer"], "");
-    assert!(plain.starts_with("TODOS") && plain.trim_end().ends_with("[ ] pay invoice"));
+    assert!(plain.starts_with("TODOS") && plain.trim_end().ends_with("[ ] pay invoice  today"));
     assert_eq!(tty(&["ls"], "ls_header: false\nls_footer: false\n"), plain);
     assert_eq!(tty(&["ls", "--ids"], "").lines().count(), 1);
     assert!(!tty(&["today"], "").contains("██████╗"));
@@ -458,7 +495,7 @@ fn scheduled() {
     );
     let scheduled = out.split("SCHEDULED").nth(1).unwrap();
     assert!(
-        scheduled.contains("started") && !scheduled.contains(" due"),
+        scheduled.contains("started") && !scheduled.contains("[ ] due"),
         "{out}"
     );
     assert!(!out.contains("later"), "{out}");

@@ -1,3 +1,5 @@
+use chrono::NaiveDate;
+
 use crate::app::App;
 use crate::dates::{display, format_iso};
 use crate::item::{Item, Kind, Status};
@@ -64,21 +66,57 @@ pub fn is_overdue(item: &Item, app: &App) -> bool {
         && item.meta.due.is_some_and(|d| d < app.clock.today)
 }
 
-fn date_cell(item: &Item, app: &App) -> String {
-    let d = match item.kind() {
-        Kind::Todo => item.meta.due,
-        Kind::Note => Some(item.meta.date),
-    };
-    d.map(|d| {
+/// The labels of the date columns, in the header line of a group of one kind.
+fn date_labels(kind: Kind, long: bool) -> &'static [&'static str] {
+    match (kind, long) {
+        (Kind::Note, false) => &["", "", "date"],
+        (Kind::Note, true) => &["", "", "created", "date"],
+        (Kind::Todo, false) => &["scheduled", "due", "created"],
+        (Kind::Todo, true) => &["scheduled", "due", "created", "date", "status"],
+    }
+}
+
+/// The date columns of a list row. Todos show the scheduled date, the due date and the creation
+/// day. Notes show the `date` field in the creation column of todos. `long` replaces the creation
+/// day with the creation time and adds the date and the status history. With `long`, the
+/// creation time and the date of both kinds line up.
+fn date_cells(item: &Item, app: &App, long: bool) -> Vec<String> {
+    let show = |d: NaiveDate, overdue: bool| {
         display(
             d,
             &app.clock,
             app.cfg.relative_days,
             &app.cfg.date_format,
-            is_overdue(item, app),
+            overdue,
         )
-    })
-    .unwrap_or_default()
+    };
+    let m = &item.meta;
+    let created = if long {
+        m.created
+            .with_timezone(app.clock.now.offset())
+            .format(&format!("{} %H:%M", app.cfg.date_format))
+            .to_string()
+    } else {
+        show(app.clock.local_day(&m.created), false)
+    };
+    match item.kind() {
+        Kind::Note if long => vec![String::new(), String::new(), created, show(m.date, false)],
+        Kind::Note => vec![String::new(), String::new(), show(m.date, false)],
+        Kind::Todo => {
+            let mut cells = vec![
+                m.scheduled.map(|d| show(d, false)).unwrap_or_default(),
+                m.due
+                    .map(|d| show(d, is_overdue(item, app)))
+                    .unwrap_or_default(),
+                created,
+            ];
+            if long {
+                cells.push(show(m.date, false));
+                cells.push(history(item));
+            }
+            cells
+        }
+    }
 }
 
 fn history(item: &Item) -> String {
@@ -153,7 +191,7 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
     struct Row<'a> {
         item: &'a Item,
         cell: String,
-        date: String,
+        dates: Vec<String>,
     }
     let groups: Vec<(&str, Vec<Row>)> = groups
         .iter()
@@ -162,7 +200,7 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
             let rows = items.iter().map(|&item| Row {
                 item,
                 cell: cell(item),
-                date: date_cell(item, app),
+                dates: date_cells(item, app, long),
             });
             (*h, rows.collect())
         })
@@ -170,39 +208,50 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
     let width = |f: fn(&Row) -> usize| groups.iter().flat_map(|(_, r)| r).map(f).max().unwrap_or(0);
     let id_w = width(|r| r.item.id().len());
     let cell_w = width(|r| self::width(&r.cell));
-    let date_w = width(|r| r.date.chars().count());
+    // The width of each date column, including its labels. A column that is blank in every row
+    // takes no space.
+    let n_dates = width(|r| r.dates.len());
+    let date_ws: Vec<usize> = (0..n_dates)
+        .map(|n| {
+            let cells = groups
+                .iter()
+                .flat_map(|(_, r)| r)
+                .filter_map(|r| r.dates.get(n));
+            let w = cells.map(|d| d.chars().count()).max().unwrap_or(0);
+            let labels = groups
+                .iter()
+                .filter_map(|(_, r)| date_labels(r[0].item.kind(), long).get(n));
+            match w {
+                0 => 0,
+                w => labels.map(|l| l.len()).fold(w, usize::max),
+            }
+        })
+        .collect();
     for (k, (header, rows)) in groups.iter().enumerate() {
         if k > 0 {
             println!();
         }
-        println!("{}", app.paint("1", header));
+        // The group name, then the labels of the date columns above the columns.
+        let mut cols = vec![pad(header, 2 + id_w + 2 + cell_w)];
+        let labels = date_labels(rows[0].item.kind(), long);
+        for (n, &w) in date_ws.iter().enumerate().filter(|&(_, &w)| w > 0) {
+            cols.push(pad(labels.get(n).unwrap_or(&""), w));
+        }
+        println!("{}", app.paint("1", cols.join("  ").trim_end()));
         for Row {
             item: i,
             cell,
-            date,
+            dates,
         } in rows
         {
-            let date = pad(date, date_w);
-            let mut cols = vec![
-                app.paint("33", &pad(i.id(), id_w)),
-                pad(cell, cell_w),
-                if is_overdue(i, app) {
+            let mut cols = vec![app.paint("33", &pad(i.id(), id_w)), pad(cell, cell_w)];
+            for (n, &w) in date_ws.iter().enumerate().filter(|&(_, &w)| w > 0) {
+                let date = pad(dates.get(n).map_or("", |d| d), w);
+                cols.push(if n == 1 && is_overdue(i, app) {
                     app.paint("31", &date)
                 } else {
                     date
-                },
-            ];
-            if long {
-                cols.push(i.meta.date.format(&app.cfg.date_format).to_string());
-                let created = i.meta.created.with_timezone(app.clock.now.offset());
-                cols.push(
-                    created
-                        .format(&format!("{} %H:%M", app.cfg.date_format))
-                        .to_string(),
-                );
-                if !i.meta.status.is_empty() {
-                    cols.push(history(i));
-                }
+                });
             }
             cols.push(app.paint("36", &hashtags(&i.meta.tags)));
             println!("  {}", cols.join("  ").trim_end());
