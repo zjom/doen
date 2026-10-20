@@ -213,21 +213,4 @@ impl Config {
     }
 }
 
-pub const DEFAULT_CONFIG: &str = "\
-# doen config. Every key shows its default value.
-# A key in <store>/.doen.yaml replaces the same key here.
-
-# editor: vi              # default: $VISUAL, then $EDITOR, then vi
-# date_format: \"%y-%m-%d\"
-# week_start: mon
-# relative_days: 7
-# default_tags: []
-# default_sort: due       # not set by default
-# archive_closed: true
-# trash_days: 30
-# git_autocommit: false
-# color: auto
-# ls_header: true        # the banner above `doen ls`
-# ls_footer: true        # the cheatsheet below `doen ls`
-# templates_dir: ~/.config/doen/templates
-";
+pub const DEFAULT_CONFIG: &str = include_str!("../config.yaml");
