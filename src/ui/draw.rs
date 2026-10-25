@@ -111,8 +111,8 @@ fn centered(area: Rect, w: u16, h: u16) -> Rect {
 fn draw_items(f: &mut Frame, ui: &mut Ui, area: Rect) {
     let active = ui.focus == Focus::Items;
     let title = match &ui.listing {
-        Some(l) => format!("[1] :{}", l.line),
-        None => "[1] todos".to_string(),
+        Some(l) => format!(":{}", l.line),
+        None => "todos".to_string(),
     };
     let mut block = panel(&title, active);
     if !ui.item_rows.is_empty() {
@@ -265,7 +265,7 @@ fn item_line<'a>(item: &Item, ui: &Ui, width: usize) -> Line<'a> {
 
 fn draw_preview(f: &mut Frame, ui: &mut Ui, area: Rect) {
     let active = ui.focus == Focus::Preview;
-    let block = panel("[2] Preview", active);
+    let block = panel("Preview", active);
     let Some(item) = ui.selected() else {
         f.render_widget(block, area);
         return;
