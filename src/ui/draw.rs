@@ -56,6 +56,27 @@ pub fn draw(f: &mut Frame, ui: &mut Ui) {
             area,
         );
     }
+    if let Some(Popup::Report {
+        title,
+        lines,
+        scroll,
+        ..
+    }) = &ui.popup
+    {
+        let area = centered(f.area(), 100, f.area().height.saturating_sub(4));
+        f.render_widget(Clear, area);
+        let block = panel(title, true).title_bottom(
+            hints(ui, &[(Action::Down, "scroll"), (Action::Up, "scroll")]) + "· other: close ",
+        );
+        let text: Vec<Line> = lines.iter().map(|l| Line::raw(l.clone())).collect();
+        f.render_widget(
+            Paragraph::new(text)
+                .block(block)
+                .wrap(Wrap { trim: false })
+                .scroll((*scroll, 0)),
+            area,
+        );
+    }
 }
 
 fn panel<'a>(title: &str, active: bool) -> Block<'a> {

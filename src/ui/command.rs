@@ -1,27 +1,26 @@
 //! The command line of the interactive mode: `:` takes a doen command, as on the command line.
 //! The list commands replace the item list, `note` and `todo` create an item and the other
-//! commands run doen itself. A command without IDs acts on the selected item. `closed` is only in
-//! the ui: it lists closed todos, as `ls --closed`.
+//! commands run as on the command line, in a transaction of the ui. `check` shows its report in a
+//! popup. A command without IDs acts on the selected item. `closed` is only in the ui: it lists
+//! closed todos, as `ls --closed`.
 
 use std::ffi::OsString;
-use std::path::Path;
-use std::process::Stdio;
 
 use clap::error::ErrorKind;
 
 use crate::app::App;
-use crate::cli::args::{Cli, Command, CreateCmd, OutputArgs};
+use crate::cli::args::{Cli, Command, CreateCmd, OutputArgs, TagAction, TrashCmd};
 use crate::cli::resolve::{Resolved, resolve};
 use crate::cli::{normalize, try_parse};
-use crate::commands::{create, list};
+use crate::commands::{self, check, create, list};
 use crate::dates::{Clock, parse_range};
-use crate::error::{Result, general, usage};
+use crate::error::{Error, Result, usage};
 use crate::filter::{Query, SortField};
 use crate::ids;
 use crate::item::{Item, Kind};
 use crate::output::limit;
 
-use super::{ConfirmAction, EMPTY_TRASH, Focus, Popup, Ui};
+use super::{ConfirmAction, EMPTY_TRASH, Focus, Popup, Ui, changes_summary, with_notices};
 
 /// The item list of a list command.
 pub struct Listing {
@@ -209,41 +208,20 @@ fn clap_message(e: &clap::Error) -> String {
     line.strip_prefix("error: ").unwrap_or(line).to_string()
 }
 
-/// The lines of a doen output, without the `doen: ` prefix.
-fn output_lines(bytes: &[u8]) -> Vec<String> {
-    String::from_utf8_lossy(bytes)
-        .lines()
-        .map(|l| l.strip_prefix("doen: ").unwrap_or(l).trim_end().to_string())
-        .filter(|l| !l.is_empty())
-        .collect()
-}
-
-fn summarize(lines: &[String]) -> String {
-    match lines {
-        [] => String::new(),
-        [l] => l.clone(),
-        [l, rest @ ..] => format!("{l} (+{} more)", rest.len()),
+/// The IDs of a command that changes items.
+fn ids(cmd: &Command) -> &[String] {
+    match cmd {
+        Command::Title(c) => std::slice::from_ref(&c.id),
+        Command::Schedule(c) | Command::Due(c) | Command::Date(c) => &c.id,
+        Command::Priority(c) => &c.id,
+        Command::Tag {
+            action: TagAction::Add(t) | TagAction::Rm(t),
+        } => &t.id,
+        Command::Done(c) | Command::Drop(c) | Command::Reopen(c) => &c.id,
+        Command::Archive(c) | Command::Unarchive(c) | Command::Restore(c) => &c.id,
+        Command::Rm(c) => &c.id,
+        _ => &[],
     }
-}
-
-/// The arguments of doen for a command of the ui: the store of the ui and no colors unless
-/// `color_given`. `-y` only if the ui has `confirmed` the command, so that doen does not skip a
-/// question the ui did not ask.
-fn subprocess_args(
-    root: &Path,
-    color_given: bool,
-    confirmed: bool,
-    argv: Vec<OsString>,
-) -> Vec<OsString> {
-    let mut full: Vec<OsString> = vec!["--dir".into(), root.into()];
-    if !color_given {
-        full.extend(["--color".into(), "never".into()]);
-    }
-    if confirmed {
-        full.push("-y".into());
-    }
-    full.extend(argv);
-    full
 }
 
 impl Ui {
@@ -263,14 +241,15 @@ impl Ui {
         if words.is_empty() {
             return Ok(None);
         }
-        let (cli, argv) =
-            self.parse(normalize(words.into_iter().map(OsString::from).collect())?)?;
+        let cli = self.parse(normalize(words.into_iter().map(OsString::from).collect())?)?;
         let g = &cli.global;
         if g.dir.is_some() {
             return Err(usage("--dir is not available in the ui"));
         }
-        let (root, color) = (self.app.root.clone(), g.color.is_some());
-        let full = |confirmed| subprocess_args(&root, color, confirmed, argv.clone());
+        if ids(&cli.command).iter().any(|id| id == "-") {
+            return Err(usage("- reads stdin, which is not available in the ui"));
+        }
+        // `--color` does nothing in the ui.
         let yes = g.yes;
         let clock = &self.app.clock;
         match cli.command {
@@ -282,8 +261,8 @@ impl Ui {
                 let q = list::grep_query(&c, clock)?;
                 self.show_listing(Listing::new(ListKind::Query(q), &c.output));
             }
-            Command::Trash(c) if c.empty && !yes => {
-                self.confirm(EMPTY_TRASH.into(), ConfirmAction::Command(full(true)))
+            cmd @ Command::Trash(TrashCmd { empty: true, .. }) if !yes => {
+                self.confirm(EMPTY_TRASH.into(), ConfirmAction::Command(Box::new(cmd)))
             }
             Command::Trash(c) if !c.empty => {
                 let q = list::trash_query(&c, clock)?;
@@ -319,7 +298,7 @@ impl Ui {
                 } else {
                     format!("Move {titles} to the trash?")
                 };
-                self.confirm(question, ConfirmAction::Command(full(true)));
+                self.confirm(question, ConfirmAction::Command(Box::new(Command::Rm(c))));
             }
             Command::Interactive
             | Command::Init
@@ -328,7 +307,7 @@ impl Ui {
             | Command::Complete(_) => {
                 return Err(usage("the command is not available in the ui"));
             }
-            _ => self.run_doen(full(false)),
+            cmd => self.run_command(cmd, yes),
         }
         Ok(None)
     }
@@ -357,10 +336,10 @@ impl Ui {
     }
 
     /// Parses the normalized words. If IDs are missing, the selected item is the ID.
-    fn parse(&self, mut argv: Vec<OsString>) -> Result<(Cli, Vec<OsString>)> {
+    fn parse(&self, mut argv: Vec<OsString>) -> Result<Cli> {
         let parse = |a: &[OsString]| try_parse::<Cli>(a.iter().cloned());
         let e = match parse(&argv) {
-            Ok(cli) => return Ok((cli, argv)),
+            Ok(cli) => return Ok(cli),
             Err(e) => e,
         };
         if e.kind() == ErrorKind::MissingRequiredArgument
@@ -368,7 +347,7 @@ impl Ui {
         {
             argv.push(id.into());
             if let Ok(cli) = parse(&argv) {
-                return Ok((cli, argv));
+                return Ok(cli);
             }
         }
         Err(usage(match e.kind() {
@@ -396,30 +375,47 @@ impl Ui {
         self.rebuild(None);
     }
 
-    /// Runs doen with the arguments and reports its output.
-    pub(super) fn run_doen(&mut self, argv: Vec<OsString>) {
+    /// Runs a command that changes the store. With `confirmed`, the confirmations are
+    /// answered yes; else a confirmation is the question of `check`, which the ui asks in a popup
+    /// after the report.
+    pub(super) fn run_command(&mut self, cmd: Command, confirmed: bool) {
         let keep = self.selected_id().unwrap_or_default();
-        let r = std::env::current_exe()
-            .and_then(|exe| {
-                std::process::Command::new(exe)
-                    .args(argv)
-                    .stdin(Stdio::null())
-                    .output()
-            })
-            .map_err(|e| general(format!("cannot run doen: {e}")))
-            .and_then(|out| {
-                let (stdout, stderr) = (output_lines(&out.stdout), output_lines(&out.stderr));
-                if !out.status.success() {
-                    return Err(general(
-                        stderr
-                            .last()
-                            .cloned()
-                            .unwrap_or_else(|| format!("doen failed ({})", out.status)),
-                    ));
+        let mut asked = None;
+        let app = &self.app;
+        let (r, changes) = self.changes(|tx| {
+            commands::dispatch(app, tx, cmd, &mut |tx, _, question| {
+                if confirmed {
+                    return Ok(());
                 }
-                Ok(summarize(if stdout.is_empty() { &stderr } else { &stdout }))
+                let paths = check::temp_files(&tx.store.root);
+                asked = Some((
+                    question.to_string(),
+                    paths.into_iter().map(|(p, _)| p).collect(),
+                ));
+                Err(Error::Declined("cancelled".into()))
+            })
+        });
+        let msg = match r {
+            // Problems that `check` did not fix: the report shows them.
+            Ok(()) | Err(Error::Silent(_)) => match changes_summary(&changes) {
+                m if m.is_empty() && changes.report.is_empty() => Ok("no problems".into()),
+                m => Ok(m),
+            },
+            Err(e) => Err(with_notices(e, changes.notices)),
+        };
+        self.after(msg, &keep);
+        if !changes.report.is_empty() {
+            let next = asked.map(|(message, paths)| {
+                let action = ConfirmAction::DeleteTemp(paths);
+                Box::new(Popup::Confirm { message, action })
             });
-        self.after(r, &keep);
+            self.popup = Some(Popup::Report {
+                title: "Check".into(),
+                lines: changes.report,
+                scroll: 0,
+                next,
+            });
+        }
     }
 }
 
@@ -438,22 +434,6 @@ mod tests {
         assert_eq!(s("n ''"), ["n", ""]);
         assert!(s("  ").is_empty());
         assert!(split("n 'open").is_err());
-    }
-
-    #[test]
-    fn subprocess_yes() {
-        let args = |confirmed| {
-            let argv = vec![OsString::from("check")];
-            let a = subprocess_args(Path::new("/s"), false, confirmed, argv);
-            a.into_iter()
-                .map(|a| a.into_string().unwrap())
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
-        assert_eq!(args(false), "--dir /s --color never check");
-        assert_eq!(args(true), "--dir /s --color never -y check");
-        let a = subprocess_args(Path::new("/s"), true, false, vec!["ls".into()]);
-        assert_eq!(a, ["--dir", "/s", "ls"]);
     }
 
     #[test]

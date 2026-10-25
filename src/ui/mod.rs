@@ -7,8 +7,8 @@ mod draw;
 mod input;
 pub mod keys;
 
-use std::ffi::OsString;
 use std::io::stdout;
+use std::path::PathBuf;
 
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -19,9 +19,9 @@ use ratatui::crossterm::terminal::{
 use ratatui::widgets::ListState;
 
 use crate::app::{App, Tx};
-use crate::cli::args::CreateCmd;
+use crate::cli::args::{Command, CreateCmd};
 use crate::commands::lifecycle::{self, Lifecycle};
-use crate::commands::{edit, meta, status};
+use crate::commands::{check, edit, meta, status};
 use crate::dates::format_iso;
 use crate::error::{Error, Result, general, usage};
 use crate::filter::select;
@@ -47,15 +47,18 @@ fn message(lines: impl IntoIterator<Item = String>) -> String {
     lines.into_iter().collect::<Vec<_>>().join("; ")
 }
 
-/// The message of a change: the first output line, the notices, and the number of the other
-/// output lines.
-fn summary(changes: &Changes) -> String {
-    let first = changes.shown.first().map(Change::line);
-    let mut msg = message(first.into_iter().chain(changes.notices.iter().cloned()));
-    if changes.shown.len() > 1 {
-        msg.push_str(&format!(" (+{} more)", changes.shown.len() - 1));
+/// A message of output lines: the first line, the notices, and the number of the other lines.
+fn summary(lines: &[String], notices: &[String]) -> String {
+    let mut msg = message(lines.iter().take(1).chain(notices).cloned());
+    if lines.len() > 1 {
+        msg.push_str(&format!(" (+{} more)", lines.len() - 1));
     }
     msg
+}
+
+pub(super) fn changes_summary(changes: &Changes) -> String {
+    let lines: Vec<String> = changes.shown.iter().map(Change::line).collect();
+    summary(&lines, &changes.notices)
 }
 
 /// The error, followed by the notices of its transaction.
@@ -94,8 +97,10 @@ pub enum ConfirmAction {
     Trash(String),
     Delete(String),
     EmptyTrash,
-    /// The arguments of doen.
-    Command(Vec<OsString>),
+    /// A command of the command line, which the ui has confirmed.
+    Command(Box<Command>),
+    /// The temporary files that `check` found.
+    DeleteTemp(Vec<PathBuf>),
 }
 
 pub enum Popup {
@@ -112,6 +117,13 @@ pub enum Popup {
     },
     Help {
         scroll: u16,
+    },
+    /// The lines of a report, as of `check`. The popup `next` follows it.
+    Report {
+        title: String,
+        lines: Vec<String>,
+        scroll: u16,
+        next: Option<Box<Popup>>,
     },
 }
 
@@ -564,6 +576,27 @@ impl Ui {
                 };
                 self.popup = Some(Popup::Help { scroll });
             }
+            Popup::Report {
+                title,
+                lines,
+                scroll,
+                next,
+            } => {
+                let scroll = if self.is(Action::Down, &key) {
+                    scroll + 1
+                } else if self.is(Action::Up, &key) {
+                    scroll.saturating_sub(1)
+                } else {
+                    self.popup = next.map(|p| *p);
+                    return None;
+                };
+                self.popup = Some(Popup::Report {
+                    title,
+                    lines,
+                    scroll,
+                    next,
+                });
+            }
             Popup::Confirm { action, .. } if self.is(Action::Confirm, &key) => {
                 self.run_confirm(action);
             }
@@ -634,7 +667,11 @@ impl Ui {
                 let r = self.transact(lifecycle::empty_trash);
                 self.after(r, "");
             }
-            ConfirmAction::Command(argv) => self.run_doen(argv),
+            ConfirmAction::Command(cmd) => self.run_command(*cmd, true),
+            ConfirmAction::DeleteTemp(paths) => {
+                let r = check::delete_temp_files(&paths).map(|lines| summary(&lines, &[]));
+                self.after(r, "");
+            }
         }
     }
 
@@ -685,12 +722,21 @@ impl Ui {
     /// Runs a change in a transaction. Returns the message of the change, or the error with the
     /// notices.
     fn transact(&self, f: impl FnOnce(&mut Tx) -> Result<()>) -> Result<String> {
-        let mut tx = self.app.begin()?;
-        let r = f(&mut tx);
-        let changes = tx.close(&self.app);
+        let (r, changes) = self.changes(f);
         match r {
-            Ok(()) => Ok(summary(&changes)),
+            Ok(()) => Ok(changes_summary(&changes)),
             Err(e) => Err(with_notices(e, changes.notices)),
+        }
+    }
+
+    /// Runs a change in a transaction. Returns its result and its changes.
+    fn changes(&self, f: impl FnOnce(&mut Tx) -> Result<()>) -> (Result<()>, Changes) {
+        match self.app.begin() {
+            Ok(mut tx) => {
+                let r = f(&mut tx);
+                (r, tx.close(&self.app))
+            }
+            Err(e) => (Err(e), Changes::default()),
         }
     }
 
@@ -891,6 +937,68 @@ mod tests {
         *input = Input::new("y");
         enter(&mut ui);
         assert_eq!(message(&ui), format!("untag  {}  a", ids[0]));
+    }
+
+    #[test]
+    fn command_line() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        let id = &ids[0];
+        ui.command("due fri");
+        assert_eq!(item(&ui, id).meta.due, parse_iso("2026-10-23"));
+        assert_eq!(message(&ui), format!("due  {id}  a"));
+        ui.command("tag add work");
+        assert_eq!(item(&ui, id).meta.tags, ["work"]);
+        ui.command("due yesterday");
+        assert!(message(&ui).contains("warning: the due date is in the past"));
+        ui.command("done --on yesterday");
+        let i = item(&ui, id);
+        assert_eq!(
+            i.meta.status,
+            [(parse_iso("2026-10-15").unwrap(), Status::Done)]
+        );
+        // Stdin is not available.
+        ui.command("reopen -");
+        assert!(message(&ui).contains("stdin"));
+    }
+
+    #[test]
+    fn command_rm() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        ui.command("rm");
+        assert!(matches!(ui.popup, Some(Popup::Confirm { .. })));
+        assert_eq!(item(&ui, &ids[0]).place, Place::Root);
+        press(&mut ui, "y");
+        assert_eq!(item(&ui, &ids[0]).place, Place::Trash);
+    }
+
+    #[test]
+    fn command_check() {
+        let (d, mut ui, ids) = setup(&["leftover"]);
+        let tmp = d.path().join(".doen-tmp-abc.md");
+        std::fs::copy(item(&ui, &ids[0]).path, &tmp).unwrap();
+        ui.command("check");
+        let Some(Popup::Report { lines, .. }) = &ui.popup else {
+            panic!("no report");
+        };
+        assert_eq!(
+            lines,
+            &[format!("{}: temporary file: leftover", tmp.display())]
+        );
+        // Any key closes the report and shows the question.
+        press(&mut ui, "q");
+        let Some(Popup::Confirm { message: q, .. }) = &ui.popup else {
+            panic!("no question");
+        };
+        assert_eq!(
+            q,
+            "Delete 1 temporary file? An open editor may still use it."
+        );
+        assert!(tmp.exists());
+        press(&mut ui, "y");
+        assert!(!tmp.exists());
+        assert!(ui.popup.is_none());
+        ui.command("check");
+        assert_eq!(message(&ui), "no problems");
     }
 
     #[test]
