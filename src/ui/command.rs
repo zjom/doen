@@ -277,7 +277,6 @@ impl Ui {
                 self.show_listing(Listing::new(line, ListKind::Query(q), &c.output));
             }
             Command::Trash(c) if c.empty && !yes => self.confirm(
-                "Empty the trash",
                 "Delete every item in the trash permanently?".into(),
                 ConfirmAction::Command(full),
             ),
@@ -314,12 +313,12 @@ impl Ui {
                     titles.push(format!("'{}'", self.store.items[n].title()));
                 }
                 let titles = titles.join(", ");
-                let (title, question) = if c.force {
-                    ("Delete", format!("Delete {titles} permanently?"))
+                let question = if c.force {
+                    format!("Delete {titles} permanently?")
                 } else {
-                    ("Trash", format!("Move {titles} to the trash?"))
+                    format!("Move {titles} to the trash?")
                 };
-                self.confirm(title, question, ConfirmAction::Command(full));
+                self.confirm(question, ConfirmAction::Command(full));
             }
             Command::Ui
             | Command::Init

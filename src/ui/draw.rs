@@ -8,7 +8,7 @@ use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph, Wrap
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::keys::{ACTIONS, Action, Section};
-use super::{Focus, Popup, Row, Ui};
+use super::{Focus, InputAction, Popup, Row, Ui};
 use crate::dates::display;
 use crate::item::{Item, Kind, Status};
 use crate::output::{is_overdue, summary};
@@ -19,8 +19,8 @@ const PREVIEW_MIN_WIDTH: u16 = 90;
 const PREVIEW_MIN_HEIGHT: u16 = 16;
 
 pub fn draw(f: &mut Frame, ui: &mut Ui) {
-    let [bar, main] =
-        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(f.area());
+    let [main, bar] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(f.area());
     let [items, preview] = if !ui.show_preview {
         [main, Rect::default()]
     } else if main.width >= PREVIEW_MIN_WIDTH {
@@ -36,44 +36,18 @@ pub fn draw(f: &mut Frame, ui: &mut Ui) {
         draw_preview(f, ui, preview);
     }
     draw_bar(f, ui, bar);
-    match &ui.popup {
-        Some(Popup::Input { title, input, .. }) => {
-            let area = centered(f.area(), 60, 3);
-            f.render_widget(Clear, area);
-            let block = panel(title, true).title_bottom(hints(
-                ui,
-                &[(Action::Submit, "ok"), (Action::Back, "cancel")],
-            ));
-            let inner = block.inner(area);
-            f.render_widget(Paragraph::new(input.text()).block(block), area);
-            f.set_cursor_position((inner.x + input.cursor_x(), inner.y));
-        }
-        Some(Popup::Confirm { title, message, .. }) => {
-            let area = centered(f.area(), 50, 4);
-            f.render_widget(Clear, area);
-            let block = panel(title, true)
-                .title_bottom(hints(ui, &[(Action::Confirm, "yes")]) + "· other: cancel ");
-            f.render_widget(
-                Paragraph::new(message.as_str())
-                    .wrap(Wrap { trim: true })
-                    .block(block),
-                area,
-            );
-        }
-        Some(Popup::Help { scroll }) => {
-            let area = centered(f.area(), 100, f.area().height.saturating_sub(4));
-            f.render_widget(Clear, area);
-            let block = panel("Keybindings", true).title_bottom(
-                hints(ui, &[(Action::Down, "scroll"), (Action::Up, "scroll")]) + "· other: close ",
-            );
-            f.render_widget(
-                Paragraph::new(help_text(ui))
-                    .block(block)
-                    .scroll((*scroll, 0)),
-                area,
-            );
-        }
-        None => {}
+    if let Some(Popup::Help { scroll }) = &ui.popup {
+        let area = centered(f.area(), 100, f.area().height.saturating_sub(4));
+        f.render_widget(Clear, area);
+        let block = panel("Keybindings", true).title_bottom(
+            hints(ui, &[(Action::Down, "scroll"), (Action::Up, "scroll")]) + "· other: close ",
+        );
+        f.render_widget(
+            Paragraph::new(help_text(ui))
+                .block(block)
+                .scroll((*scroll, 0)),
+            area,
+        );
     }
 }
 
@@ -322,17 +296,46 @@ fn hints(ui: &Ui, actions: &[(Action, &str)]) -> String {
     format!(" {} ", parts.join(" · "))
 }
 
+/// The bottom line, as in vim: a prompt or a question on the left, else the last message.
 fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
-    if let Some((m, err)) = &ui.message {
-        let style = if *err {
-            Style::new().fg(Color::Red).bold()
-        } else {
-            Style::new().fg(Color::Green)
-        };
-        f.render_widget(
-            Paragraph::new(m.as_str()).style(style).right_aligned(),
-            area,
-        );
+    match &ui.popup {
+        Some(Popup::Input {
+            title,
+            input,
+            action,
+        }) => {
+            let prompt = match action {
+                InputAction::Command => ":".to_string(),
+                _ => format!("{title}: "),
+            };
+            let x = (prompt.width() as u16).saturating_add(input.cursor_x());
+            // Scrolls a long line so that the cursor stays in view.
+            let offset = (x + 1).saturating_sub(area.width);
+            let line = Line::from(vec![
+                Span::styled(prompt, Style::new().fg(Color::Yellow)),
+                input.text().into(),
+            ]);
+            f.render_widget(Paragraph::new(line).scroll((0, offset)), area);
+            f.set_cursor_position((area.x + x - offset, area.y));
+        }
+        Some(Popup::Confirm { message, .. }) => {
+            let line = Line::from(vec![
+                Span::styled(message.as_str(), Style::new().fg(Color::Yellow)),
+                hints(ui, &[(Action::Confirm, "yes")]).dim(),
+                "· other: cancel".dim(),
+            ]);
+            f.render_widget(Paragraph::new(line), area);
+        }
+        _ => {
+            if let Some((m, err)) = &ui.message {
+                let style = if *err {
+                    Style::new().fg(Color::Red).bold()
+                } else {
+                    Style::new().fg(Color::Green)
+                };
+                f.render_widget(Paragraph::new(m.as_str()).style(style), area);
+            }
+        }
     }
 }
 

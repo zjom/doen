@@ -78,7 +78,6 @@ pub enum Popup {
         action: InputAction,
     },
     Confirm {
-        title: String,
         message: String,
         action: ConfirmAction,
     },
@@ -423,7 +422,6 @@ impl Ui {
         } else if is(Action::EmptyTrash) && self.selected().is_some_and(|i| i.place == Place::Trash)
         {
             self.confirm(
-                "Empty the trash",
                 "Delete every item in the trash permanently?".into(),
                 ConfirmAction::EmptyTrash,
             );
@@ -445,12 +443,10 @@ impl Ui {
             .find(|a| self.is(*a, &key))?;
         match action {
             Action::Delete if trashed => self.confirm(
-                "Delete",
                 format!("Delete '{title}' permanently?"),
                 ConfirmAction::Delete(id),
             ),
             Action::Delete => self.confirm(
-                "Trash",
                 format!("Move '{title}' to the trash?"),
                 ConfirmAction::Trash(id),
             ),
@@ -528,12 +524,8 @@ impl Ui {
         self.prompt(&title, &value.unwrap_or_default(), action);
     }
 
-    fn confirm(&mut self, title: &str, message: String, action: ConfirmAction) {
-        self.popup = Some(Popup::Confirm {
-            title: title.into(),
-            message,
-            action,
-        });
+    fn confirm(&mut self, message: String, action: ConfirmAction) {
+        self.popup = Some(Popup::Confirm { message, action });
     }
 
     /// Handles a key in a popup. Returns the ID of an item to open in the editor.
