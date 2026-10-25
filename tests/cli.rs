@@ -936,3 +936,66 @@ fn loads_only_the_places_needed() {
     // New IDs avoid unparsed files in every place.
     assert_eq!(e.run(&["note", "new"]).code, 0);
 }
+
+#[test]
+fn past_due_warning() {
+    let e = Env::new();
+    let id = e.id(&["t", "x"]);
+    let o = e.run(&["due", "yesterday", &id]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.stdout, format!("due  {id}  x\n"));
+    assert!(o.stderr.contains("warning: the due date is in the past"));
+    let o = e.run(&["todo", "-d", "yesterday", "x"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.stdout.trim().len(), 4);
+    assert!(o.stderr.contains("warning: the due date is in the past"));
+}
+
+#[test]
+fn already_warnings() {
+    let e = Env::new();
+    let id = e.id(&["t", "x", "-d", "fri"]);
+    e.ok(&["archive", &id]);
+    let o = e.run(&["archive", &id]);
+    assert!(o.code == 0 && o.stdout.is_empty());
+    assert!(o.stderr.contains(&format!("{id} is already archived")));
+    let o = e.run(&["restore", &id]);
+    assert!(o.code == 0 && o.stdout.is_empty());
+    assert!(o.stderr.contains(&format!("{id} is not in the trash")));
+    let o = e.run(&["due", "fri", &id]);
+    assert!(o.code == 0 && o.stdout.is_empty());
+    assert!(o.stderr.contains(&format!("{id}: due is already fri")));
+}
+
+/// An env 31 days after `e`, in which the trashed item `id` is purged by the next mutation.
+fn after_purge(e: Env) -> Env {
+    Env {
+        dir: e.dir,
+        now: "2026-11-16T12:00:00+11:00".into(),
+    }
+}
+
+#[test]
+fn purge_message_on_failure() {
+    let e = Env::new();
+    let id = e.id(&["n", "old"]);
+    e.ok(&["rm", "-y", &id]);
+    let e = after_purge(e);
+    let o = e.run(&["done", "nosuchid"]);
+    assert_eq!(o.code, 3);
+    assert!(o.stderr.contains("deleted permanently"), "{}", o.stderr);
+}
+
+#[test]
+fn purge_message_before_confirmation() {
+    let e = Env::new();
+    let old = e.id(&["n", "old"]);
+    let keep = e.id(&["n", "keep"]);
+    e.ok(&["rm", "-y", &old]);
+    let e = after_purge(e);
+    let o = e.run(&["rm", &keep]);
+    assert_eq!(o.code, 4);
+    let purge = o.stderr.find("deleted permanently").expect(&o.stderr);
+    let label = o.stderr.find(&format!("  {keep}  keep")).expect(&o.stderr);
+    assert!(purge < label, "{}", o.stderr);
+}

@@ -120,25 +120,7 @@ pub fn run(app: App) -> Result<()> {
     // Purges old trash before the screen is taken, so that its messages stay readable.
     app.begin()?.finish(&app)?;
     let store = Store::open(&app.root, &Place::ALL, false)?;
-    let mut ui = Ui {
-        app,
-        store,
-        focus: Focus::Items,
-        rows: vec![],
-        item_rows: vec![],
-        cursor: 0,
-        list_state: ListState::default(),
-        search: Input::default(),
-        searching: false,
-        listing: None,
-        preview_scroll: 0,
-        show_preview: true,
-        popup: None,
-        message: None,
-        redraw: false,
-        quit: false,
-    };
-    ui.rebuild(None);
+    let mut ui = Ui::new(app, store);
     let mut terminal = ratatui::init();
     let result = ui.event_loop(&mut terminal);
     ratatui::restore();
@@ -159,6 +141,29 @@ fn resume(terminal: &mut DefaultTerminal) -> Result<()> {
 }
 
 impl Ui {
+    pub fn new(app: App, store: Store) -> Ui {
+        let mut ui = Ui {
+            app,
+            store,
+            focus: Focus::Items,
+            rows: vec![],
+            item_rows: vec![],
+            cursor: 0,
+            list_state: ListState::default(),
+            search: Input::default(),
+            searching: false,
+            listing: None,
+            preview_scroll: 0,
+            show_preview: true,
+            popup: None,
+            message: None,
+            redraw: false,
+            quit: false,
+        };
+        ui.rebuild(None);
+        ui
+    }
+
     fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.quit {
             if std::mem::take(&mut self.redraw) {
@@ -720,5 +725,142 @@ impl Ui {
             Err(e) => self.error(e),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::create;
+    use crate::dates::{Clock, parse_iso};
+    use tempfile::TempDir;
+
+    fn app(root: &std::path::Path) -> App {
+        App {
+            root: root.into(),
+            cfg: Default::default(),
+            clock: Clock::at(
+                chrono::DateTime::parse_from_rfc3339("2026-10-16T12:00:00+11:00").unwrap(),
+                chrono::Weekday::Mon,
+            ),
+            yes: false,
+            color: false,
+        }
+    }
+
+    /// A ui on a new store with the todos `titles`, the first one selected.
+    fn setup(titles: &[&str]) -> (TempDir, Ui, Vec<String>) {
+        let dir = tempfile::tempdir().unwrap();
+        let app = app(dir.path());
+        let ids = titles
+            .iter()
+            .map(|t| {
+                let c = CreateCmd {
+                    title: vec![t.to_string()],
+                    template: Some("none".into()),
+                    ..CreateCmd::default()
+                };
+                create::create(&app, Kind::Todo, c).unwrap()
+            })
+            .collect();
+        let store = Store::open(dir.path(), &Place::ALL, false).unwrap();
+        (dir, Ui::new(app, store), ids)
+    }
+
+    fn press(ui: &mut Ui, keys: &str) {
+        for c in keys.chars() {
+            ui.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+    }
+
+    fn enter(ui: &mut Ui) {
+        ui.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    }
+
+    /// The item `id` as on disk.
+    fn item(ui: &Ui, id: &str) -> Item {
+        let mut store = Store::open(&ui.app.root, &[], false).unwrap();
+        let n = ids::resolve(&mut store, id, true).unwrap();
+        store.items.swap_remove(n)
+    }
+
+    fn select(ui: &mut Ui, id: &str) {
+        ui.rebuild(Some(id.into()));
+        assert_eq!(ui.selected_id().as_deref(), Some(id));
+    }
+
+    #[test]
+    fn trash_and_restore() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        press(&mut ui, "d");
+        assert!(matches!(ui.popup, Some(Popup::Confirm { .. })));
+        press(&mut ui, "y");
+        let i = item(&ui, &ids[0]);
+        assert_eq!(i.place, Place::Trash);
+        assert_eq!(i.meta.trashed, parse_iso("2026-10-16"));
+        ui.command("trash");
+        select(&mut ui, &ids[0]);
+        press(&mut ui, "R");
+        let i = item(&ui, &ids[0]);
+        assert_eq!(i.place, Place::Root);
+        assert!(i.meta.trashed.is_none());
+    }
+
+    #[test]
+    fn archive_toggle() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        press(&mut ui, "a");
+        assert_eq!(item(&ui, &ids[0]).place, Place::Archive);
+        ui.command("ls -a");
+        select(&mut ui, &ids[0]);
+        press(&mut ui, "a");
+        let i = item(&ui, &ids[0]);
+        assert_eq!(i.place, Place::Root);
+        assert!(i.meta.archived.is_none());
+    }
+
+    #[test]
+    fn done_toggle() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        press(&mut ui, " ");
+        let i = item(&ui, &ids[0]);
+        assert_eq!(i.meta.current_status(), Some(Status::Done));
+        assert_eq!(i.place, Place::Archive);
+        ui.command("ls -a -s any");
+        select(&mut ui, &ids[0]);
+        press(&mut ui, " ");
+        let i = item(&ui, &ids[0]);
+        assert_eq!(i.meta.current_status(), Some(Status::Open));
+        assert_eq!(i.place, Place::Root);
+    }
+
+    #[test]
+    fn priority_up_and_down() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        press(&mut ui, "++++");
+        assert_eq!(item(&ui, &ids[0]).meta.priority, Some(3));
+        press(&mut ui, "-");
+        assert_eq!(item(&ui, &ids[0]).meta.priority, Some(2));
+        press(&mut ui, "--");
+        assert_eq!(item(&ui, &ids[0]).meta.priority, None);
+        assert!(!item(&ui, &ids[0]).doc.render().contains("priority"));
+    }
+
+    #[test]
+    fn due_prompt() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        press(&mut ui, "u");
+        assert!(matches!(ui.popup, Some(Popup::Input { .. })));
+        press(&mut ui, "fri");
+        enter(&mut ui);
+        assert_eq!(item(&ui, &ids[0]).meta.due, parse_iso("2026-10-23"));
+        // An empty value clears the date.
+        press(&mut ui, "u");
+        let Some(Popup::Input { input, .. }) = &mut ui.popup else {
+            panic!("no prompt");
+        };
+        *input = Input::default();
+        enter(&mut ui);
+        assert_eq!(item(&ui, &ids[0]).meta.due, None);
     }
 }
