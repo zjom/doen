@@ -7,8 +7,8 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::keys::{ACTIONS, Action, Section, spec_of};
-use super::{Focus, Popup, Row, Ui, VIEWS, View};
+use super::keys::{ACTIONS, Action, Section};
+use super::{Focus, Popup, Row, Ui, VIEWS};
 use crate::dates::display;
 use crate::item::{Item, Kind, Status};
 use crate::output::{is_overdue, summary};
@@ -17,8 +17,8 @@ use crate::output::{is_overdue, summary};
 const PREVIEW_MIN_WIDTH: u16 = 90;
 
 pub fn draw(f: &mut Frame, ui: &mut Ui) {
-    let [main, bar] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(f.area());
+    let [bar, main] =
+        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(f.area());
     let side_w = if ui.side_open() {
         22.min(main.width / 4)
     } else {
@@ -373,90 +373,14 @@ fn hints(ui: &Ui, actions: &[(Action, &str)]) -> String {
     format!(" {} ", parts.join(" · "))
 }
 
-/// `key: short` for the actions, from the short descriptions of the actions.
-fn short_hints(ui: &Ui, actions: &[Action]) -> String {
-    let pairs: Vec<(Action, &str)> = actions.iter().map(|a| (*a, spec_of(*a).short)).collect();
-    hints(ui, &pairs)
-}
-
 fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
-    use Action as A;
-    let hints = if ui.searching {
-        hints(
-            ui,
-            &[
-                (A::Submit, "keep filter"),
-                (A::Back, "clear"),
-                (A::Down, "down"),
-                (A::Up, "up"),
-            ],
-        )
-    } else {
-        match ui.focus {
-            Focus::Views | Focus::Tags => short_hints(
-                ui,
-                &[
-                    A::Down,
-                    A::Up,
-                    A::NextPanel,
-                    A::Submit,
-                    A::TogglePanels,
-                    A::NewNote,
-                    A::NewTodo,
-                    A::Help,
-                    A::Quit,
-                ],
-            ),
-            Focus::Preview => short_hints(ui, &[A::Down, A::Up, A::Back, A::Help, A::Quit]),
-            Focus::Items if ui.view() == View::Trash => short_hints(
-                ui,
-                &[
-                    A::Restore,
-                    A::Delete,
-                    A::EmptyTrash,
-                    A::TogglePanels,
-                    A::Help,
-                    A::Quit,
-                ],
-            ),
-            Focus::Items => short_hints(
-                ui,
-                &[
-                    A::TogglePanels,
-                    A::ToggleDone,
-                    A::ToggleDrop,
-                    A::Edit,
-                    A::Rename,
-                    A::Schedule,
-                    A::Due,
-                    A::PriorityUp,
-                    A::PriorityDown,
-                    A::Tags,
-                    A::Archive,
-                    A::Delete,
-                    A::NewNote,
-                    A::NewTodo,
-                    A::Search,
-                    A::Command,
-                    A::Help,
-                ],
-            ),
-        }
-    };
-    let msg = ui.message.as_ref().map(|(m, err)| {
+    if let Some((m, err)) = &ui.message {
         let style = if *err {
             Style::new().fg(Color::Red).bold()
         } else {
             Style::new().fg(Color::Green)
         };
-        Span::styled(format!("{m} "), style)
-    });
-    let msg_w = msg.as_ref().map_or(0, |m| m.width() as u16).min(area.width);
-    let [left, right] =
-        Layout::horizontal([Constraint::Fill(1), Constraint::Length(msg_w)]).areas(area);
-    f.render_widget(Paragraph::new(hints).fg(Color::Blue), left);
-    if let Some(m) = msg {
-        f.render_widget(Paragraph::new(m), right);
+        f.render_widget(Paragraph::new(m.as_str()).style(style).right_aligned(), area);
     }
 }
 
