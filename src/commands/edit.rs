@@ -20,10 +20,12 @@ pub fn edit_item(app: &App, id: &str, quiet: bool) -> Result<()> {
     let n = ids::resolve(&mut store, id, false)?;
     let mut orig_item = store.items[n].clone();
     let mut orig_text = std::fs::read_to_string(&orig_item.path)?;
+    // Next to the item, so that relative links resolve in the editor.
+    let dir = orig_item.path.parent().unwrap_or(app.root.as_path());
     let tmp = tempfile::Builder::new()
-        .prefix(&format!("doen-{id}-"))
+        .prefix(&format!(".doen-tmp-{id}-"))
         .suffix(".md")
-        .tempfile()?;
+        .tempfile_in(dir)?;
     std::fs::write(tmp.path(), &orig_text)?;
     loop {
         editor::open(app, tmp.path())?;

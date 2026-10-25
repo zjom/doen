@@ -328,7 +328,7 @@ If the new value of a field is the same as the current value, doen does not repo
 
 ### Editing
 
-`doen edit <id>` copies the file to a temporary file and opens the temporary file in the editor. doen selects the editor in this order: the `editor` config key, `$VISUAL`, `$EDITOR`, `vi`. The command requires a terminal.
+`doen edit <id>` copies the file to a temporary file and opens the temporary file in the editor. The temporary file has the name `.doen-tmp-*` and is in the same directory as the item. Thus, relative links in the file resolve in the editor. For a new item without a title, the temporary file is in the store root. doen selects the editor in this order: the `editor` config key, `$VISUAL`, `$EDITOR`, `vi`. The command requires a terminal.
 
 When you save the file, doen does these steps:
 
@@ -757,7 +757,7 @@ If no global config file exists, `doen init` creates one. In this file, every ke
 
 ### Integrity
 
-- Writes are atomic. doen first writes to a temporary file with the name `.doen-tmp-*` in the store. doen then renames the temporary file. doen ignores these temporary files. Add the pattern `.doen-tmp-*` to `.gitignore` and to the ignore lists of synchronization tools.
+- Writes are atomic. doen first writes to a temporary file with the name `.doen-tmp-*` in the store. doen then renames the temporary file. The editor also opens a temporary file with this name (see Editing). doen ignores these temporary files. Add the pattern `.doen-tmp-*` to `.gitignore` and to the ignore lists of synchronization tools.
 - Each mutating command gets a lock on `<store>/.doen.lock`. If another doen process has the lock, the command waits a maximum of 5 seconds for that process to finish.
 - The lock does not protect against other computers that synchronize the same store. `doen check` finds the results of these conflicts (duplicate IDs, files in the wrong directory).
 - If doen cannot parse a file, doen skips the file and prints a warning on stderr. An invalid file never stops a listing.

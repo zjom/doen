@@ -132,10 +132,11 @@ pub fn create(app: &App, kind: Kind, c: CreateCmd) -> Result<String> {
 
 /// Opens the editor on a new item that has no title yet.
 fn edit_new(app: &App, item: Item) -> Result<Item> {
+    // In the store root, where new items go, so that relative links resolve in the editor.
     let tmp = tempfile::Builder::new()
-        .prefix("doen-new-")
+        .prefix(".doen-tmp-new-")
         .suffix(".md")
-        .tempfile()?;
+        .tempfile_in(&app.root)?;
     std::fs::write(tmp.path(), item.render())?;
     loop {
         editor::open(app, tmp.path())?;
