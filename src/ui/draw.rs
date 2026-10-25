@@ -4,7 +4,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::keys::{ACTIONS, Action, Section};
@@ -21,19 +21,24 @@ const PREVIEW_MIN_HEIGHT: u16 = 16;
 pub fn draw(f: &mut Frame, ui: &mut Ui) {
     let [main, bar] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(f.area());
-    let [items, preview] = if !ui.show_preview {
-        [main, Rect::default()]
+    // The preview is separated from the items by a line on the side that touches them.
+    let ([items, preview], separator) = if !ui.show_preview {
+        ([main, Rect::default()], Borders::NONE)
     } else if main.width >= PREVIEW_MIN_WIDTH {
-        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(main)
+        let areas = Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .areas(main);
+        (areas, Borders::LEFT)
     } else if main.height >= PREVIEW_MIN_HEIGHT {
-        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(main)
+        let areas =
+            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(main);
+        (areas, Borders::TOP)
     } else {
-        [main, Rect::default()]
+        ([main, Rect::default()], Borders::NONE)
     };
 
     draw_items(f, ui, items);
     if !preview.is_empty() {
-        draw_preview(f, ui, preview);
+        draw_preview(f, ui, preview, separator);
     }
     draw_bar(f, ui, bar);
     if let Some(Popup::Help { scroll }) = &ui.popup {
@@ -84,34 +89,11 @@ fn centered(area: Rect, w: u16, h: u16) -> Rect {
 
 fn draw_items(f: &mut Frame, ui: &mut Ui, area: Rect) {
     let active = ui.focus == Focus::Items;
-    let title = match &ui.listing {
-        Some(l) => format!(":{}", l.line),
-        None => "todos".to_string(),
-    };
-    let mut block = panel(&title, active);
-    if !ui.item_rows.is_empty() {
-        block = block.title_bottom(
-            Line::from(format!(" {} of {} ", ui.cursor + 1, ui.item_rows.len())).right_aligned(),
-        );
-    }
-    if ui.searching || !ui.search.text().is_empty() {
-        let style = if ui.searching {
-            Style::new().fg(Color::Yellow)
-        } else {
-            Style::new()
-        };
-        block = block.title_bottom(Span::styled(format!(" /{} ", ui.search.text()), style));
-    }
-    let inner = block.inner(area);
-    if ui.searching {
-        f.set_cursor_position((inner.x + 2 + ui.search.cursor_x(), area.bottom() - 1));
-    }
     if ui.rows.is_empty() {
-        let empty = Paragraph::new(" nothing here".dim()).block(block);
-        f.render_widget(empty, area);
+        f.render_widget(Paragraph::new(" nothing here".dim()), area);
         return;
     }
-    let w = inner.width as usize;
+    let w = area.width as usize;
     let lines: Vec<ListItem> = ui
         .rows
         .iter()
@@ -124,9 +106,7 @@ fn draw_items(f: &mut Frame, ui: &mut Ui, area: Rect) {
             Row::Item(n) => item_line(&ui.store.items[*n], ui, w).into(),
         })
         .collect();
-    let list = List::new(lines)
-        .block(block)
-        .highlight_style(highlight(active));
+    let list = List::new(lines).highlight_style(highlight(active));
     f.render_stateful_widget(list, area, &mut ui.list_state);
 }
 
@@ -237,9 +217,10 @@ fn item_line<'a>(item: &Item, ui: &Ui, width: usize) -> Line<'a> {
     Line::from(left)
 }
 
-fn draw_preview(f: &mut Frame, ui: &mut Ui, area: Rect) {
-    let active = ui.focus == Focus::Preview;
-    let block = panel("Preview", active);
+fn draw_preview(f: &mut Frame, ui: &mut Ui, area: Rect, separator: Borders) {
+    let block = Block::new()
+        .borders(separator)
+        .border_style(Style::new().dark_gray());
     let Some(item) = ui.selected() else {
         f.render_widget(block, area);
         return;
@@ -318,6 +299,16 @@ fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
             f.render_widget(Paragraph::new(line).scroll((0, offset)), area);
             f.set_cursor_position((area.x + x - offset, area.y));
         }
+        _ if ui.searching => {
+            let x = 1 + ui.search.cursor_x();
+            let offset = (x + 1).saturating_sub(area.width);
+            let line = Line::from(vec![
+                Span::styled("/", Style::new().fg(Color::Yellow)),
+                ui.search.text().into(),
+            ]);
+            f.render_widget(Paragraph::new(line).scroll((0, offset)), area);
+            f.set_cursor_position((area.x + x - offset, area.y));
+        }
         Some(Popup::Confirm { message, .. }) => {
             let line = Line::from(vec![
                 Span::styled(message.as_str(), Style::new().fg(Color::Yellow)),
@@ -334,6 +325,8 @@ fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
                     Style::new().fg(Color::Green)
                 };
                 f.render_widget(Paragraph::new(m.as_str()).style(style), area);
+            } else if !ui.search.text().is_empty() {
+                f.render_widget(Paragraph::new(format!("/{}", ui.search.text()).dim()), area);
             }
         }
     }

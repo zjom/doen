@@ -25,8 +25,6 @@ use super::{ConfirmAction, Focus, Popup, Ui};
 
 /// The item list of a list command.
 pub struct Listing {
-    /// The command line, for the title of the list.
-    pub line: String,
     kind: ListKind,
     sort: Option<SortField>,
     reverse: bool,
@@ -43,9 +41,8 @@ enum ListKind {
 }
 
 impl Listing {
-    fn new(line: &str, kind: ListKind, output: &OutputArgs) -> Listing {
+    fn new(kind: ListKind, output: &OutputArgs) -> Listing {
         Listing {
-            line: line.to_string(),
             kind,
             sort: output.sort,
             reverse: output.reverse,
@@ -270,11 +267,11 @@ impl Ui {
         match cli.command {
             Command::Ls(c) => {
                 let q = list::query(&c.filter, c.kind, None, clock)?;
-                self.show_listing(Listing::new(line, ListKind::Query(q), &c.output));
+                self.show_listing(Listing::new(ListKind::Query(q), &c.output));
             }
             Command::Grep(c) => {
                 let q = list::grep_query(&c, clock)?;
-                self.show_listing(Listing::new(line, ListKind::Query(q), &c.output));
+                self.show_listing(Listing::new(ListKind::Query(q), &c.output));
             }
             Command::Trash(c) if c.empty && !yes => self.confirm(
                 "Delete every item in the trash permanently?".into(),
@@ -282,11 +279,11 @@ impl Ui {
             ),
             Command::Trash(c) if !c.empty => {
                 let q = list::trash_query(&c, clock)?;
-                self.show_listing(Listing::new(line, ListKind::Query(q), &c.output));
+                self.show_listing(Listing::new(ListKind::Query(q), &c.output));
             }
             Command::Today(c) => {
                 let q = list::today_query(&c)?;
-                self.show_listing(Listing::new(line, ListKind::Agenda(q), &c.output));
+                self.show_listing(Listing::new(ListKind::Agenda(q), &c.output));
             }
             Command::Show(c) => {
                 let mut shown = vec![];
@@ -295,11 +292,7 @@ impl Ui {
                     shown.push(self.store.items[n].id().to_string());
                 }
                 let keep = shown.first().cloned();
-                self.show_listing(Listing::new(
-                    line,
-                    ListKind::Ids(shown),
-                    &OutputArgs::default(),
-                ));
+                self.show_listing(Listing::new(ListKind::Ids(shown), &OutputArgs::default()));
                 self.rebuild(keep);
             }
             Command::Help(_) => self.popup = Some(Popup::Help { scroll: 0 }),
