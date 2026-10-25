@@ -47,7 +47,7 @@ fn command_word(argv: &[OsString]) -> usize {
 }
 
 /// Replaces the command word with the full command name, or inserts `ls` if there is none.
-fn normalize(mut argv: Vec<OsString>) -> Result<Vec<OsString>> {
+pub fn normalize(mut argv: Vec<OsString>) -> Result<Vec<OsString>> {
     let i = command_word(&argv);
     let word = argv.get(i).map(|w| w.to_string_lossy().into_owned());
     match word.as_deref() {

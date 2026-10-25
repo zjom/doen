@@ -17,7 +17,12 @@ fn range(arg: Option<&str>, clock: &Clock) -> Result<Option<Range>> {
         .transpose()
 }
 
-fn query(f: &FilterArgs, kind: Option<Kind>, text: Option<&str>, clock: &Clock) -> Result<Query> {
+pub fn query(
+    f: &FilterArgs,
+    kind: Option<Kind>,
+    text: Option<&str>,
+    clock: &Clock,
+) -> Result<Query> {
     let implies_todo = f.status.is_some()
         || f.scheduled.is_some()
         || f.due.is_some()
@@ -137,34 +142,50 @@ pub fn ls(app: &App, c: LsCmd) -> Result<()> {
     Ok(())
 }
 
-pub fn grep(app: &App, c: GrepCmd) -> Result<()> {
+pub fn grep_query(c: &GrepCmd, clock: &Clock) -> Result<Query> {
     if c.filter.query.is_some() {
         return Err(usage("grep takes the pattern as an argument, not with -q"));
     }
-    let q = query(&c.filter, c.kind, Some(&c.pattern), &app.clock)?;
+    query(&c.filter, c.kind, Some(&c.pattern), clock)
+}
+
+pub fn grep(app: &App, c: GrepCmd) -> Result<()> {
+    let q = grep_query(&c, &app.clock)?;
     match list(app, &q, &c.output)? {
         0 => Err(Error::Silent(5)),
         _ => Ok(()),
     }
 }
 
-pub fn trash(app: &App, mut c: TrashCmd) -> Result<()> {
+pub fn trash_query(c: &TrashCmd, clock: &Clock) -> Result<Query> {
     if c.filter.all || c.filter.archived {
         return Err(usage("trash lists only the trash"));
     }
-    c.filter.trashed = true;
-    let q = query(&c.filter, c.kind, None, &app.clock)?;
+    let f = FilterArgs {
+        trashed: true,
+        ..c.filter.clone()
+    };
+    query(&f, c.kind, None, clock)
+}
+
+pub fn trash(app: &App, c: TrashCmd) -> Result<()> {
+    let q = trash_query(&c, &app.clock)?;
     list(app, &q, &c.output)?;
     Ok(())
 }
 
-pub fn today(app: &App, c: TodayCmd) -> Result<()> {
-    let q = Query {
+/// The items that `doen today` sorts into the groups of `agenda`.
+pub fn today_query(c: &TodayCmd) -> Result<Query> {
+    Ok(Query {
         places: vec![Place::Root],
         status: StatusFilter::Any,
         tags: TagFilter::new(&c.tags.tag, &c.tags.exclude_tag).map_err(usage)?,
         ..Query::default()
-    };
+    })
+}
+
+pub fn today(app: &App, c: TodayCmd) -> Result<()> {
+    let q = today_query(&c)?;
     let store = app.store(&q.places)?;
     let base = store.items.iter().filter(|i| q.accepts(i, &app.clock));
     let groups = agenda(

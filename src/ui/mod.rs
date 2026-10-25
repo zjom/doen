@@ -1,11 +1,13 @@
 //! `doen ui`: an interactive mode in the style of lazygit. Panels on the left select a view and
 //! a tag, the item list is in the middle and the preview of the selected item is on the right.
 
+mod command;
 mod draw;
 mod input;
 pub mod keys;
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io::stdout;
 
 use ratatui::DefaultTerminal;
@@ -123,12 +125,15 @@ pub enum InputAction {
     Due(String),
     Date(String),
     Tags(String),
+    Command,
 }
 
 pub enum ConfirmAction {
     Trash(String),
     Delete(String),
     EmptyTrash,
+    /// The arguments of doen.
+    Command(Vec<OsString>),
 }
 
 pub enum Popup {
@@ -164,6 +169,8 @@ pub struct Ui {
     pub list_state: ListState,
     pub search: Input,
     pub searching: bool,
+    /// The list of a list command, in place of the selected view.
+    pub listing: Option<command::Listing>,
     pub preview_scroll: u16,
     pub popup: Option<Popup>,
     /// A message for the status bar, and whether it is an error.
@@ -194,6 +201,7 @@ pub fn run(app: App) -> Result<()> {
         list_state: ListState::default(),
         search: Input::default(),
         searching: false,
+        listing: None,
         preview_scroll: 0,
         popup: None,
         message: None,
@@ -279,7 +287,10 @@ impl Ui {
             .into_iter()
             .filter(|i| needle.is_empty() || i.body.to_lowercase().contains(&needle))
             .collect();
-        let groups = self.view().groups(found, &self.app);
+        let groups = match &self.listing {
+            Some(l) => l.groups(found, &self.app),
+            None => self.view().groups(found, &self.app),
+        };
 
         let mut counts: Vec<(String, usize)> = vec![];
         for t in groups
@@ -398,8 +409,7 @@ impl Ui {
             return None;
         }
         if let Some(popup) = self.popup.take() {
-            self.popup_key(popup, key);
-            return None;
+            return self.popup_key(popup, key);
         }
         if self.searching {
             self.search_key(key);
@@ -432,12 +442,16 @@ impl Ui {
         } else if is(Action::Back) && !self.search.text().is_empty() {
             self.search = Input::default();
             self.rebuild(None);
+        } else if is(Action::Back) && self.listing.is_some() {
+            self.clear_listing(None);
         } else if is(Action::Reload) {
             self.reload(None);
             self.info("reloaded");
         } else if is(Action::Search) {
             self.focus = Focus::Items;
             self.searching = true;
+        } else if is(Action::Command) {
+            self.prompt("Command", "", InputAction::Command);
         } else if is(Action::NewNote) {
             self.prompt("New note", "", InputAction::Create(Kind::Note));
         } else if is(Action::NewTodo) {
@@ -493,12 +507,13 @@ impl Ui {
     fn views_key(&mut self, key: KeyEvent) {
         let pos = self.views.selected().unwrap_or(0);
         if let Some(n) = self.movement(&key, pos, VIEWS.len()) {
-            if n != pos {
-                self.views.select(Some(n));
-                self.cursor = 0;
-                self.rebuild(None);
+            if n != pos || self.listing.is_some() {
+                self.clear_listing(Some(VIEWS[n]));
             }
         } else if self.is(Action::Submit, &key) {
+            if self.listing.is_some() {
+                self.clear_listing(None);
+            }
             self.focus = Focus::Items;
         }
     }
@@ -690,7 +705,8 @@ impl Ui {
         });
     }
 
-    fn popup_key(&mut self, popup: Popup, key: KeyEvent) {
+    /// Handles a key in a popup. Returns the ID of an item to open in the editor.
+    fn popup_key(&mut self, popup: Popup, key: KeyEvent) -> Option<String> {
         match popup {
             Popup::Help { scroll } => {
                 let scroll = if self.is(Action::Down, &key) {
@@ -698,7 +714,7 @@ impl Ui {
                 } else if self.is(Action::Up, &key) {
                     scroll.saturating_sub(1)
                 } else {
-                    return;
+                    return None;
                 };
                 self.popup = Some(Popup::Help { scroll });
             }
@@ -706,6 +722,13 @@ impl Ui {
                 self.run_confirm(action);
             }
             Popup::Confirm { .. } => {}
+            Popup::Input {
+                action: InputAction::Command,
+                input,
+                ..
+            } if self.is(Action::Submit, &key) => {
+                return self.command(input.text());
+            }
             Popup::Input { action, input, .. } if self.is(Action::Submit, &key) => {
                 self.run_input(action, input.text().trim());
             }
@@ -723,6 +746,7 @@ impl Ui {
                 });
             }
         }
+        None
     }
 
     fn run_confirm(&mut self, action: ConfirmAction) {
@@ -743,6 +767,7 @@ impl Ui {
                 let r = self.delete(None);
                 self.after(r, "");
             }
+            ConfirmAction::Command(argv) => self.run_doen(argv),
         }
     }
 
@@ -753,6 +778,7 @@ impl Ui {
                 let id = r.as_ref().map_or(String::new(), Clone::clone);
                 return self.after(r.map(|id| format!("created  {id}")), &id);
             }
+            InputAction::Command => unreachable!("run by `command`"),
             InputAction::Title(ref id)
             | InputAction::Schedule(ref id)
             | InputAction::Due(ref id)
@@ -765,7 +791,7 @@ impl Ui {
             s => parse_date(s, clock).map(Some).map_err(usage),
         };
         let r = match action {
-            InputAction::Create(_) => unreachable!(),
+            InputAction::Create(_) | InputAction::Command => unreachable!(),
             InputAction::Title(_) if text.is_empty() => Err(usage("the title cannot be empty")),
             InputAction::Title(_) => self.mutate(&id, "title", |_, i| {
                 meta::retitle(i, text);

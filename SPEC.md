@@ -312,6 +312,12 @@ If the new value of a field is the same as the current value, doen does not repo
 - Two panels select what the item list shows: **Views** (today, todos, notes, closed, archive, trash) and **Tags** (the tags of the items in the view, with counts). The view `today` has the groups of `doen today`. The default view is `todos`. These panels are hidden until you ask for them. With the default keys, `v` shows or hides them, and `1` or `2` shows them with the focus on views or tags. `enter`, `esc` or `l` hides them again. The title of the item list names the selected view and tag.
 - The middle panel lists the items. The right panel shows the selected item: the title, the metadata summary of `doen show`, the status history, the path and the body. If the terminal is less than 90 columns wide, doen does not show the right panel.
 - `/` filters the list by a case-insensitive substring of the title and the body.
+- `:` runs a doen command, with the same words, options and prefixes as on the command line. Quotes and backslashes work as in a shell. If the IDs are missing, the command acts on the selected item (`:due fri`, `:tag add work`, `:done --on yesterday`).
+  - The list commands (`ls`, `today`, `grep`, `trash`, `show`) replace the item list with their result, as with the default command: `:--date yesterday` lists like `doen ls --date yesterday`. `--sort`, `-r` and `-n` apply; the output formats do not. The title of the list is the command. `back`, or a view in the views panel, returns to the views.
+  - `note` and `todo` create the item with the selected tag, as `n` and `t` do. The title cannot be empty, and `-c -` is not available. `-e` opens the new item in the editor.
+  - `edit` opens the editor, `tags` focuses the tags panel and `help` shows the keybindings.
+  - The other commands run doen on the same store, and the status bar shows their output. `rm` and `trash --empty` ask for confirmation first, unless you give `-y`.
+  - `ui`, `init`, `completion` and `--dir` are not available.
 - Every key is configurable with the `ui_keys` config key (see Config). The defaults are lazygit-like: `j`/`k` move, `space` toggles done, `e` opens the editor (as `doen edit`), `d` moves to the trash, `?` lists the keys with their action names. `ctrl-c` always quits and cannot be changed.
 - Text fields (prompts and the search) take every plain character as text: while you type, only the `submit` and `back` keys and the movement keys with `ctrl-`, `alt-` or a key name run an action. The editing keys of text fields (`ctrl-a`, `ctrl-e`, `ctrl-u`, `ctrl-k`, `ctrl-w`, arrows, `home`, `end`, `backspace`, `delete`) are fixed.
 - In date prompts, an empty value or `none` clears the date. A new note or todo gets the selected tag.
@@ -705,6 +711,7 @@ When two actions share a key, the global actions win over the actions of the foc
 | `submit` | `enter` | Accept a prompt or the search; in the panels, close them. |
 | `confirm` | `y` `enter` | Answer yes to a question. |
 | `search` | `/` | Search the titles and bodies. |
+| `command` | `:` | Run a doen command, as on the command line. |
 | `reload` | `ctrl-r` | Reload the store. |
 | `new_note` | `n` | New note, with the selected tag. |
 | `new_todo` | `t` | New todo, with the selected tag. |

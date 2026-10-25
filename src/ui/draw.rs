@@ -158,7 +158,10 @@ fn draw_tags(f: &mut Frame, ui: &mut Ui, area: Rect) {
 
 fn draw_items(f: &mut Frame, ui: &mut Ui, area: Rect) {
     let active = ui.focus == Focus::Items;
-    let mut title = format!("[3] {}", ui.view().name());
+    let mut title = match &ui.listing {
+        Some(l) => format!("[3] :{}", l.line),
+        None => format!("[3] {}", ui.view().name()),
+    };
     if let Some(t) = ui.tag() {
         title.push_str(&format!(" #{t}"));
     }
@@ -434,6 +437,7 @@ fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
                     A::NewNote,
                     A::NewTodo,
                     A::Search,
+                    A::Command,
                     A::Help,
                 ],
             ),
@@ -482,5 +486,27 @@ fn help_text(ui: &Ui) -> Text<'static> {
             .dim(),
     );
     lines.push(Line::from("Dates take the same forms as on the command line.").dim());
+    lines.push(Line::default());
+    lines.push(Line::from("Commands").bold().fg(Color::Magenta));
+    for (example, meaning) in [
+        (
+            ":n -t work call bob",
+            "create a note, as 'doen n -t work call bob'",
+        ),
+        (":today", "the agenda of 'doen today'"),
+        (
+            ":--date yesterday",
+            "list as 'doen ls --date yesterday'; esc returns to the view",
+        ),
+        (
+            ":due fri",
+            "without IDs, a command acts on the selected item",
+        ),
+    ] {
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {example:<22}"), Style::new().fg(Color::Yellow)),
+            meaning.into(),
+        ]));
+    }
     Text::from(lines)
 }
