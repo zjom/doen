@@ -180,9 +180,9 @@ pub struct FilterArgs {
     /// Priorities, separated by commas (`none` for no priority). Implies todo
     #[arg(short = 'p', long, value_name = "P")]
     pub priority: Option<String>,
-    /// Filter on the date the todo was closed. Implies todo and -s closed
-    #[arg(long, value_name = "RANGE")]
-    pub closed: Option<String>,
+    /// Closed todos, optionally only those closed in RANGE. Implies todo and -s closed
+    #[arg(long, value_name = "RANGE", num_args = 0..=1)]
+    pub closed: Option<Option<String>>,
     /// Open todos with a due date before today
     #[arg(long)]
     pub overdue: bool,

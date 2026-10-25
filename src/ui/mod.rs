@@ -1,5 +1,5 @@
-//! `doen ui`: an interactive mode in the style of lazygit. Panels on the left select a view and
-//! a tag, the item list is in the middle and the preview of the selected item is on the right.
+//! `doen ui`: an interactive mode in the style of lazygit. The item list is on the left and the
+//! preview of the selected item is on the right.
 
 mod command;
 mod draw;
@@ -20,10 +20,10 @@ use ratatui::widgets::ListState;
 
 use crate::app::App;
 use crate::cli::args::CreateCmd;
-use crate::commands::{create, edit, list, meta, status};
+use crate::commands::{create, edit, meta, status};
 use crate::dates::{format_iso, parse_date};
 use crate::error::{Error, Result, general, usage};
-use crate::filter::{SortField, select};
+use crate::filter::select;
 use crate::ids;
 use crate::item::{Item, Kind, Place, Status};
 use crate::store::{self, Change, Store};
@@ -32,81 +32,16 @@ use crate::term;
 use input::Input;
 use keys::Action;
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum View {
-    Today,
-    Todos,
-    Notes,
-    Closed,
-    Archive,
-    Trash,
-}
-
-pub const VIEWS: [View; 6] = [
-    View::Today,
-    View::Todos,
-    View::Notes,
-    View::Closed,
-    View::Archive,
-    View::Trash,
-];
-
-impl View {
-    pub fn name(self) -> &'static str {
-        match self {
-            View::Today => "today",
-            View::Todos => "todos",
-            View::Notes => "notes",
-            View::Closed => "closed",
-            View::Archive => "archive",
-            View::Trash => "trash",
-        }
-    }
-
-    /// The groups of the view, sorted.
-    fn groups<'a>(self, items: Vec<&'a Item>, app: &App) -> Vec<(&'static str, Vec<&'a Item>)> {
-        let sort = app.cfg.default_sort;
-        let closed = |i: &&Item| i.meta.current_status() != Some(Status::Open);
-        let at = |places: &'static [Place]| move |i: &&Item| places.contains(&i.place);
-        let items = items.into_iter();
-        match self {
-            View::Today => list::agenda(
-                items.filter(at(&[Place::Root])),
-                app.clock.today,
-                sort,
-                false,
-            ),
-            View::Todos => {
-                let todos = items.filter(at(&[Place::Root])).filter(|i| !closed(i));
-                vec![("TODOS", select(todos, sort, false).0)]
-            }
-            View::Notes => vec![(
-                "NOTES",
-                select(items.filter(at(&[Place::Root])), sort, false).1,
-            )],
-            View::Closed => {
-                let closed = items
-                    .filter(at(&[Place::Root, Place::Archive]))
-                    .filter(closed);
-                vec![("CLOSED", select(closed, Some(SortField::Closed), true).0)]
-            }
-            View::Archive | View::Trash => {
-                let place = if self == View::Archive {
-                    Place::Archive
-                } else {
-                    Place::Trash
-                };
-                let (todos, notes) = select(items.filter(|i| i.place == place), sort, false);
-                vec![("TODOS", todos), ("NOTES", notes)]
-            }
-        }
-    }
+/// The groups of the default list: the open todos in the store root, sorted.
+fn todos<'a>(items: Vec<&'a Item>, app: &App) -> Vec<(&'static str, Vec<&'a Item>)> {
+    let todos = items.into_iter().filter(|i| {
+        i.place == Place::Root && i.meta.current_status().is_none_or(|s| s == Status::Open)
+    });
+    vec![("TODOS", select(todos, app.cfg.default_sort, false).0)]
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Focus {
-    Views,
-    Tags,
     Items,
     Preview,
 }
@@ -156,12 +91,6 @@ pub struct Ui {
     pub app: App,
     pub store: Store,
     pub focus: Focus,
-    pub views: ListState,
-    /// The item count of each view, without the tag filter and the search.
-    pub view_counts: Vec<usize>,
-    /// `None` is the entry for all tags.
-    pub tags: Vec<(Option<String>, usize)>,
-    pub tag_state: ListState,
     pub rows: Vec<Row>,
     /// The rows that are items, as indexes into `rows`.
     pub item_rows: Vec<usize>,
@@ -169,7 +98,7 @@ pub struct Ui {
     pub list_state: ListState,
     pub search: Input,
     pub searching: bool,
-    /// The list of a list command, in place of the selected view.
+    /// The list of a list command, in place of the open todos.
     pub listing: Option<command::Listing>,
     pub preview_scroll: u16,
     pub popup: Option<Popup>,
@@ -191,10 +120,6 @@ pub fn run(app: App) -> Result<()> {
         app,
         store,
         focus: Focus::Items,
-        views: ListState::default().with_selected(Some(1)),
-        view_counts: vec![],
-        tags: vec![],
-        tag_state: ListState::default().with_selected(Some(0)),
         rows: vec![],
         item_rows: vec![],
         cursor: 0,
@@ -247,17 +172,6 @@ impl Ui {
         Ok(())
     }
 
-    pub fn view(&self) -> View {
-        VIEWS[self.views.selected().unwrap_or(0)]
-    }
-
-    pub fn tag(&self) -> Option<&str> {
-        self.tag_state
-            .selected()
-            .and_then(|n| self.tags.get(n))
-            .and_then(|(t, _)| t.as_deref())
-    }
-
     pub fn selected(&self) -> Option<&Item> {
         match self.rows.get(*self.item_rows.get(self.cursor)?)? {
             Row::Item(n) => Some(&self.store.items[*n]),
@@ -269,64 +183,24 @@ impl Ui {
         self.selected().map(|i| i.id().to_string())
     }
 
-    /// Rebuilds the counts, the tag list and the rows. Selects the item `keep` if it is listed.
+    /// Rebuilds the rows. Selects the item `keep` if it is listed.
     fn rebuild(&mut self, keep: Option<String>) {
         let keep = keep.or_else(|| self.selected_id());
-        let keep_tag = self.tag().map(String::from);
-        let all: Vec<&Item> = self.store.items.iter().collect();
-        self.view_counts = VIEWS
-            .iter()
-            .map(|v| {
-                let groups = v.groups(all.clone(), &self.app);
-                groups.iter().map(|(_, g)| g.len()).sum()
-            })
-            .collect();
-
         let needle = self.search.text().to_lowercase();
-        let found: Vec<&Item> = all
-            .into_iter()
+        let found: Vec<&Item> = (self.store.items.iter())
             .filter(|i| needle.is_empty() || i.body.to_lowercase().contains(&needle))
             .collect();
         let groups = match &self.listing {
             Some(l) => l.groups(found, &self.app),
-            None => self.view().groups(found, &self.app),
+            None => todos(found, &self.app),
         };
 
-        let mut counts: Vec<(String, usize)> = vec![];
-        for t in groups
-            .iter()
-            .flat_map(|(_, g)| g)
-            .flat_map(|i| &i.meta.tags)
-        {
-            match counts.iter_mut().find(|(c, _)| c == t) {
-                Some((_, n)) => *n += 1,
-                None => counts.push((t.clone(), 1)),
-            }
-        }
-        counts.sort();
-        let total = groups.iter().map(|(_, g)| g.len()).sum();
-        self.tags = std::iter::once((None, total))
-            .chain(counts.into_iter().map(|(t, n)| (Some(t), n)))
-            .collect();
-        let tag_n = keep_tag
-            .and_then(|k| self.tags.iter().position(|(t, _)| t.as_deref() == Some(&k)))
-            .unwrap_or(0);
-        self.tag_state.select(Some(tag_n));
-
-        let tag = self.tag().map(String::from);
         let index: HashMap<*const Item, usize> = (self.store.items.iter())
             .enumerate()
             .map(|(n, i)| (i as *const Item, n))
             .collect();
         let mut rows = vec![];
         for (header, items) in groups {
-            let items: Vec<&Item> = items
-                .into_iter()
-                .filter(|i| {
-                    tag.as_ref()
-                        .is_none_or(|f| i.meta.tags.iter().any(|t| tags::matches(t, f)))
-                })
-                .collect();
             if items.is_empty() {
                 continue;
             }
@@ -415,35 +289,28 @@ impl Ui {
             self.search_key(key);
             return None;
         }
-        let side = self.side_open();
         let is = |a| self.is(a, &key);
         if is(Action::Quit) {
             self.quit = true;
         } else if is(Action::Help) {
             self.popup = Some(Popup::Help { scroll: 0 });
-        } else if is(Action::FocusViews) {
-            self.focus = Focus::Views;
-        } else if is(Action::FocusTags) {
-            self.focus = Focus::Tags;
-        } else if is(Action::FocusItems) {
-            self.focus = Focus::Items;
-        } else if is(Action::FocusPreview) {
+        } else if is(Action::FocusPreview) || is(Action::FocusRight) {
             self.focus = Focus::Preview;
-        } else if is(Action::TogglePanels) {
-            self.focus = if side { Focus::Items } else { Focus::Views };
         } else if is(Action::NextPanel) {
-            self.cycle_focus();
-        } else if is(Action::FocusRight) {
-            self.focus = if side { Focus::Items } else { Focus::Preview };
-        } else if is(Action::FocusLeft)
-            || is(Action::Back) && (side || self.focus == Focus::Preview)
+            self.focus = match self.focus {
+                Focus::Items => Focus::Preview,
+                Focus::Preview => Focus::Items,
+            };
+        } else if is(Action::FocusItems)
+            || is(Action::FocusLeft)
+            || is(Action::Back) && self.focus == Focus::Preview
         {
             self.focus = Focus::Items;
         } else if is(Action::Back) && !self.search.text().is_empty() {
             self.search = Input::default();
             self.rebuild(None);
         } else if is(Action::Back) && self.listing.is_some() {
-            self.clear_listing(None);
+            self.clear_listing();
         } else if is(Action::Reload) {
             self.reload(None);
             self.info("reloaded");
@@ -458,28 +325,11 @@ impl Ui {
             self.prompt("New todo", "", InputAction::Create(Kind::Todo));
         } else {
             match self.focus {
-                Focus::Views => self.views_key(key),
-                Focus::Tags => self.tags_key(key),
                 Focus::Items => return self.items_key(key),
                 Focus::Preview => self.preview_key(key),
             }
         }
         None
-    }
-
-    /// Whether the views and tags panels are shown. They are shown only while one has the focus.
-    pub fn side_open(&self) -> bool {
-        matches!(self.focus, Focus::Views | Focus::Tags)
-    }
-
-    /// Switches between the two panels of the side column, or between the items and the preview.
-    fn cycle_focus(&mut self) {
-        self.focus = match self.focus {
-            Focus::Views => Focus::Tags,
-            Focus::Tags => Focus::Views,
-            Focus::Items => Focus::Preview,
-            Focus::Preview => Focus::Items,
-        };
     }
 
     /// The new position after a movement key in a list of `len` entries, or `None`.
@@ -502,33 +352,6 @@ impl Ui {
         } else {
             return None;
         })
-    }
-
-    fn views_key(&mut self, key: KeyEvent) {
-        let pos = self.views.selected().unwrap_or(0);
-        if let Some(n) = self.movement(&key, pos, VIEWS.len()) {
-            if n != pos || self.listing.is_some() {
-                self.clear_listing(Some(VIEWS[n]));
-            }
-        } else if self.is(Action::Submit, &key) {
-            if self.listing.is_some() {
-                self.clear_listing(None);
-            }
-            self.focus = Focus::Items;
-        }
-    }
-
-    fn tags_key(&mut self, key: KeyEvent) {
-        let pos = self.tag_state.selected().unwrap_or(0);
-        if let Some(n) = self.movement(&key, pos, self.tags.len()) {
-            if n != pos {
-                self.tag_state.select(Some(n));
-                self.cursor = 0;
-                self.rebuild(None);
-            }
-        } else if self.is(Action::Submit, &key) {
-            self.focus = Focus::Items;
-        }
     }
 
     fn preview_key(&mut self, key: KeyEvent) {
@@ -590,7 +413,8 @@ impl Ui {
             self.scroll_preview(10);
         } else if is(Action::PreviewPageUp) {
             self.scroll_preview(-10);
-        } else if is(Action::EmptyTrash) && self.view() == View::Trash {
+        } else if is(Action::EmptyTrash) && self.selected().is_some_and(|i| i.place == Place::Trash)
+        {
             self.confirm(
                 "Empty the trash",
                 "Delete every item in the trash permanently?".into(),
@@ -912,7 +736,7 @@ impl Ui {
         self.after(r, id);
     }
 
-    /// Creates an item with the selected tag. Returns the ID.
+    /// Creates an item. Returns the ID.
     fn create(&self, kind: Kind, title: &str) -> Result<String> {
         if title.is_empty() {
             return Err(usage("the title cannot be empty"));
@@ -920,7 +744,7 @@ impl Ui {
         let c = CreateCmd {
             title: vec![title.to_string()],
             content: None,
-            tag: self.tag().map(String::from).into_iter().collect(),
+            tag: vec![],
             template: None,
             date: None,
             scheduled: None,

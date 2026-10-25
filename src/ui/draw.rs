@@ -8,7 +8,7 @@ use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph, Wrap
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::keys::{ACTIONS, Action, Section};
-use super::{Focus, Popup, Row, Ui, VIEWS};
+use super::{Focus, Popup, Row, Ui};
 use crate::dates::display;
 use crate::item::{Item, Kind, Status};
 use crate::output::{is_overdue, summary};
@@ -19,26 +19,12 @@ const PREVIEW_MIN_WIDTH: u16 = 90;
 pub fn draw(f: &mut Frame, ui: &mut Ui) {
     let [bar, main] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(f.area());
-    let side_w = if ui.side_open() {
-        22.min(main.width / 4)
-    } else {
-        0
-    };
-    let [side, rest] =
-        Layout::horizontal([Constraint::Length(side_w), Constraint::Fill(1)]).areas(main);
     let [items, preview] = if main.width >= PREVIEW_MIN_WIDTH {
-        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(rest)
+        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(main)
     } else {
-        [rest, Rect::default()]
+        [main, Rect::default()]
     };
-    let views_h = VIEWS.len() as u16 + 2;
-    let [views, tags] =
-        Layout::vertical([Constraint::Length(views_h), Constraint::Fill(1)]).areas(side);
 
-    if ui.side_open() {
-        draw_views(f, ui, views);
-        draw_tags(f, ui, tags);
-    }
     draw_items(f, ui, items);
     if !preview.is_empty() {
         draw_preview(f, ui, preview);
@@ -116,55 +102,12 @@ fn centered(area: Rect, w: u16, h: u16) -> Rect {
     }
 }
 
-/// A line with `left` at the start and `right` at the end of `width` columns.
-fn spread<'a>(left: Span<'a>, right: Span<'a>, width: u16) -> Line<'a> {
-    let gap = (width as usize).saturating_sub(left.width() + right.width());
-    Line::from(vec![left, " ".repeat(gap.max(1)).into(), right])
-}
-
-fn draw_views(f: &mut Frame, ui: &mut Ui, area: Rect) {
-    let active = ui.focus == Focus::Views;
-    let w = area.width.saturating_sub(2);
-    let lines: Vec<ListItem> = VIEWS
-        .iter()
-        .zip(&ui.view_counts)
-        .map(|(v, n)| spread(format!(" {}", v.name()).into(), format!("{n} ").dim(), w).into())
-        .collect();
-    let list = List::new(lines)
-        .block(panel("[1] Views", active))
-        .highlight_style(highlight(active));
-    f.render_stateful_widget(list, area, &mut ui.views);
-}
-
-fn draw_tags(f: &mut Frame, ui: &mut Ui, area: Rect) {
-    let active = ui.focus == Focus::Tags;
-    let w = area.width.saturating_sub(2);
-    let lines: Vec<ListItem> = ui
-        .tags
-        .iter()
-        .map(|(t, n)| {
-            let name = match t {
-                Some(t) => Span::styled(format!(" #{t}"), Style::new().fg(Color::Cyan)),
-                None => " all".into(),
-            };
-            spread(name, format!("{n} ").dim(), w).into()
-        })
-        .collect();
-    let list = List::new(lines)
-        .block(panel("[2] Tags", active))
-        .highlight_style(highlight(active));
-    f.render_stateful_widget(list, area, &mut ui.tag_state);
-}
-
 fn draw_items(f: &mut Frame, ui: &mut Ui, area: Rect) {
     let active = ui.focus == Focus::Items;
-    let mut title = match &ui.listing {
-        Some(l) => format!("[3] :{}", l.line),
-        None => format!("[3] {}", ui.view().name()),
+    let title = match &ui.listing {
+        Some(l) => format!("[1] :{}", l.line),
+        None => "[1] todos".to_string(),
     };
-    if let Some(t) = ui.tag() {
-        title.push_str(&format!(" #{t}"));
-    }
     let mut block = panel(&title, active);
     if !ui.item_rows.is_empty() {
         block = block.title_bottom(
@@ -316,7 +259,7 @@ fn item_line<'a>(item: &Item, ui: &Ui, width: usize) -> Line<'a> {
 
 fn draw_preview(f: &mut Frame, ui: &mut Ui, area: Rect) {
     let active = ui.focus == Focus::Preview;
-    let block = panel("[0] Preview", active);
+    let block = panel("[2] Preview", active);
     let Some(item) = ui.selected() else {
         f.render_widget(block, area);
         return;
@@ -380,7 +323,10 @@ fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
         } else {
             Style::new().fg(Color::Green)
         };
-        f.render_widget(Paragraph::new(m.as_str()).style(style).right_aligned(), area);
+        f.render_widget(
+            Paragraph::new(m.as_str()).style(style).right_aligned(),
+            area,
+        );
     }
 }
 
@@ -419,8 +365,12 @@ fn help_text(ui: &Ui) -> Text<'static> {
         ),
         (":today", "the agenda of 'doen today'"),
         (
+            ":closed 1w",
+            "the todos closed in the last 7 days, newest first",
+        ),
+        (
             ":--date yesterday",
-            "list as 'doen ls --date yesterday'; esc returns to the view",
+            "list as 'doen ls --date yesterday'; esc returns to the todos",
         ),
         (
             ":due fri",

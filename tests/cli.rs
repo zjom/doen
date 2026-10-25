@@ -260,6 +260,11 @@ fn status_archive_and_reopen() {
     assert_eq!(e.ok(&["ls", "--ids"]), "");
     assert_eq!(e.ok(&["-s", "done", "--ids"]), format!("{id}\n"));
     assert_eq!(e.ok(&["--closed", "1w", "--ids"]), format!("{id}\n"));
+    assert_eq!(e.ok(&["--closed", "--ids"]), format!("{id}\n"));
+    assert_eq!(
+        e.ok(&["ls", "--closed", "-n", "1", "--ids"]),
+        format!("{id}\n")
+    );
     e.ok(&["reopen", &id[..2]]);
     assert_eq!(place_of(&e.file(&id)), "store");
     let text = e.read(&id);

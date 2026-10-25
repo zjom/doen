@@ -1,6 +1,7 @@
 //! The command line of the interactive mode: `:` takes a doen command, as on the command line.
 //! The list commands replace the item list, `note` and `todo` create an item and the other
-//! commands run doen itself. A command without IDs acts on the selected item.
+//! commands run doen itself. A command without IDs acts on the selected item. `closed` is only in
+//! the ui: it lists closed todos, as `ls --closed`.
 
 use std::ffi::OsString;
 use std::process::Stdio;
@@ -20,7 +21,7 @@ use crate::ids;
 use crate::item::{Item, Kind};
 use crate::output::limit;
 
-use super::{ConfirmAction, Focus, Popup, Ui, View};
+use super::{ConfirmAction, Focus, Popup, Ui};
 
 /// The item list of a list command.
 pub struct Listing {
@@ -139,7 +140,8 @@ fn is_kind(w: &str) -> bool {
 
 /// Rewrites a filter line as an `ls` command: a bare date or range filters by date, `#tags` by
 /// tags, and a last `n` or `t` lists that kind. Options, from the first word that starts with `-`,
-/// are kept as they are. Other lines are returned unchanged.
+/// are kept as they are. `closed [range]` lists as `ls --closed [range]`, newest first unless
+/// `--sort` or `-r` is given. Other lines are returned unchanged.
 fn expand_filters(words: Vec<String>, clock: &Clock) -> Vec<String> {
     let n = words
         .iter()
@@ -150,7 +152,30 @@ fn expand_filters(words: Vec<String>, clock: &Clock) -> Vec<String> {
         return words;
     };
     let resolved = resolve(first);
-    let (kind, filters) = if resolved == Resolved::Command("ls".into()) {
+    let (kind, filters) = if first == "closed" {
+        let mut argv = vec!["ls".to_string(), "--closed".to_string()];
+        let mut rest = &lead[1..];
+        if let Some(r) = rest.first().filter(|r| !r.starts_with('#') && !is_kind(r)) {
+            argv.push(r.clone());
+            rest = &rest[1..];
+        }
+        for w in rest {
+            match filter_word(w, clock) {
+                Some(f) => argv.extend(f),
+                // The kind goes before `--closed`, which would take it as the range.
+                None if is_kind(w) => argv.insert(1, w.clone()),
+                None => argv.push(w.clone()),
+            }
+        }
+        let sorted = options.iter().any(|o| {
+            o == "-r" || o == "--sort" || o.starts_with("--sort=") || o.starts_with("--rev")
+        });
+        if !sorted {
+            argv.extend(["--sort", "closed", "-r"].map(String::from));
+        }
+        argv.extend_from_slice(options);
+        return argv;
+    } else if resolved == Resolved::Command("ls".into()) {
         // `ls` takes the kind itself: only the filter words change.
         let mut argv = vec![first.clone()];
         for w in &lead[1..] {
@@ -278,7 +303,6 @@ impl Ui {
                 ));
                 self.rebuild(keep);
             }
-            Command::Tags(_) => self.focus = Focus::Tags,
             Command::Help(_) => self.popup = Some(Popup::Help { scroll: 0 }),
             Command::Edit(c) => return Ok(Some(c.id)),
             Command::Note(c) => return self.create_cmd(Kind::Note, c),
@@ -297,7 +321,11 @@ impl Ui {
                 };
                 self.confirm(title, question, ConfirmAction::Command(full));
             }
-            Command::Ui | Command::Init | Command::Completion(_) | Command::Complete(_) => {
+            Command::Ui
+            | Command::Init
+            | Command::Tags(_)
+            | Command::Completion(_)
+            | Command::Complete(_) => {
                 return Err(usage("the command is not available in the ui"));
             }
             _ => self.run_doen(full),
@@ -305,8 +333,8 @@ impl Ui {
         Ok(None)
     }
 
-    /// Creates an item, with the selected tag. Returns the ID if it is to be edited.
-    fn create_cmd(&mut self, kind: Kind, mut c: CreateCmd) -> Result<Option<String>> {
+    /// Creates an item. Returns the ID if it is to be edited.
+    fn create_cmd(&mut self, kind: Kind, c: CreateCmd) -> Result<Option<String>> {
         if c.title.join("").trim().is_empty() {
             return Err(usage("the title cannot be empty"));
         }
@@ -314,7 +342,6 @@ impl Ui {
             return Err(usage("-c - reads stdin, which is not available in the ui"));
         }
         let edit = c.edit;
-        c.tag.extend(self.tag().map(String::from));
         let r = create::create(&self.app, kind, c);
         let id = r.as_ref().ok().cloned();
         self.after(
@@ -354,18 +381,13 @@ impl Ui {
 
     fn show_listing(&mut self, listing: Listing) {
         self.listing = Some(listing);
-        self.tag_state.select(Some(0));
         self.focus = Focus::Items;
         self.cursor = 0;
         self.rebuild(None);
     }
 
-    /// Selects the view `v` instead of a listing.
-    pub(super) fn clear_listing(&mut self, v: Option<View>) {
-        if let Some(v) = v {
-            let n = super::VIEWS.iter().position(|w| *w == v);
-            self.views.select(n);
-        }
+    /// Returns from a listing to the open todos.
+    pub(super) fn clear_listing(&mut self) {
         self.listing = None;
         self.cursor = 0;
         self.rebuild(None);
@@ -439,5 +461,13 @@ mod tests {
         assert_eq!(x("none"), "none");
         assert_eq!(x("#"), "#");
         assert_eq!(x("due fri"), "due fri");
+        assert_eq!(x("closed"), "ls --closed --sort closed -r");
+        assert_eq!(
+            x("closed 1w #work"),
+            "ls --closed 1w -t work --sort closed -r"
+        );
+        assert_eq!(x("closed #work -r"), "ls --closed -t work -r");
+        assert_eq!(x("closed t"), "ls t --closed --sort closed -r");
+        assert_eq!(x("closed --sort title"), "ls --closed --sort title");
     }
 }

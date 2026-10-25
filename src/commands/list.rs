@@ -92,7 +92,7 @@ pub fn query(
         scheduled: range(f.scheduled.as_deref(), clock)?,
         due,
         priority: f.priority.as_deref().map(priorities).transpose()?,
-        closed: range(f.closed.as_deref(), clock)?,
+        closed: range(f.closed.as_ref().and_then(Option::as_deref), clock)?,
         text,
     })
 }

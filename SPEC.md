@@ -184,7 +184,7 @@ An explicit `-s` option always takes precedence over the default status in this 
 | `-S, --scheduled <range>` | Filters on the scheduled date. The value `none` matches the todos that have no scheduled date. For example, `-S +1d..` lists the todos that are scheduled after today. This option implies `todo`. |
 | `-d, --due <range>` | Filters on the due date. The value `none` matches the todos that have no due date. This option implies `todo`. |
 | `-p, --priority <p>` | Filters on the priority. Separate the values with commas. The values are `1`, `2`, `3` and `none`. The value `none` matches the todos that have no priority. For example, `-p 2,3` matches the todos with priority 2 or 3. This option implies `todo`. |
-| `--closed <range>` | Filters on the date of the last entry in the status log. This option matches only closed todos. This option implies `todo`. If you do not give `-s`, this option also implies `-s closed`. |
+| `--closed [range]` | Lists only closed todos. With a range, filters on the date of the last entry in the status log. If the next word does not start with `-`, doen reads it as the range: put `todo` before `--closed`. This option implies `todo`. If you do not give `-s`, this option also implies `-s closed`. |
 | `--overdue` | Selects the open todos that have a due date before today. This option is a short form of `-s open -d ..1d`. |
 | `-q, --query <text>` | Filters on a case-insensitive substring match in the title and in the body. doen does not search the frontmatter. |
 | `-E, --regex` | Makes doen read the `-q` value as a case-insensitive regular expression. |
@@ -309,19 +309,19 @@ If the new value of a field is the same as the current value, doen does not repo
 
 `doen ui` opens a full-screen interface in the style of lazygit. The command requires a terminal.
 
-- Two panels select what the item list shows: **Views** (today, todos, notes, closed, archive, trash) and **Tags** (the tags of the items in the view, with counts). The view `today` has the groups of `doen today`. The default view is `todos`. These panels are hidden until you ask for them. With the default keys, `v` shows or hides them, and `1` or `2` shows them with the focus on views or tags. `enter`, `esc` or `l` hides them again. The title of the item list names the selected view and tag.
-- The middle panel lists the items. The right panel shows the selected item: the title, the metadata summary of `doen show`, the status history, the path and the body. If the terminal is less than 90 columns wide, doen does not show the right panel.
+- The left panel lists the items. By default, it lists the open todos in the store root. A command (see below) replaces this list with other items. The right panel shows the selected item: the title, the metadata summary of `doen show`, the status history, the path and the body. If the terminal is less than 90 columns wide, doen does not show the right panel.
 - `/` filters the list by a case-insensitive substring of the title and the body.
 - `:` runs a doen command, with the same words, options and prefixes as on the command line. Quotes and backslashes work as in a shell. If the IDs are missing, the command acts on the selected item (`:due fri`, `:tag add work`, `:done --on yesterday`).
-  - The list commands (`ls`, `today`, `grep`, `trash`, `show`) replace the item list with their result, as with the default command: `:--date yesterday` lists like `doen ls --date yesterday`. `--sort`, `-r` and `-n` apply; the output formats do not. The title of the list is the command. `back`, or a view in the views panel, returns to the views.
+  - The list commands (`ls`, `today`, `grep`, `trash`, `show`) replace the item list with their result, as with the default command: `:--date yesterday` lists like `doen ls --date yesterday`. `--sort`, `-r` and `-n` apply; the output formats do not. The title of the list is the command. `back` returns to the open todos.
   - A line of filters lists like `ls`: a bare date or range filters by date (`:yesterday`, `:26-10-22`, `:W` is `--date`), a word that starts with `#` filters by tags (`:#life,work` is `-t life,work`), and `n` or `t` as the last word selects notes or todos. The filters compose, and options can follow: `:tomorrow #life n`, `:W #work -a`.
-  - `note` and `todo` create the item with the selected tag, as `n` and `t` do. Without a title, `n` and `t` list notes and todos. `-c -` is not available. `-e` opens the new item in the editor.
-  - `edit` opens the editor, `tags` focuses the tags panel and `help` shows the keybindings.
+  - `closed [range]` exists only in the ui. It lists the closed todos, as `ls --closed [range]`, with the newest closed todo first. Filter words and options can follow: `:closed 1w #work`. `--sort` or `-r` replaces the default order.
+  - `note` and `todo` create the item, as `n` and `t` do. Without a title, `n` and `t` list notes and todos. `-c -` is not available. `-e` opens the new item in the editor.
+  - `edit` opens the editor and `help` shows the keybindings.
   - The other commands run doen on the same store, and the status bar shows their output. `rm` and `trash --empty` ask for confirmation first, unless you give `-y`.
-  - `ui`, `init`, `completion` and `--dir` are not available.
+  - `ui`, `init`, `tags`, `completion` and `--dir` are not available.
 - Every key is configurable with the `ui_keys` config key (see Config). The defaults are lazygit-like: `j`/`k` move, `space` toggles done, `e` opens the editor (as `doen edit`), `d` moves to the trash, `?` lists the keys with their action names. `ctrl-c` always quits and cannot be changed.
 - Text fields (prompts and the search) take every plain character as text: while you type, only the `submit` and `back` keys and the movement keys with `ctrl-`, `alt-` or a key name run an action. The editing keys of text fields (`ctrl-a`, `ctrl-e`, `ctrl-u`, `ctrl-k`, `ctrl-w`, arrows, `home`, `end`, `backspace`, `delete`) are fixed.
-- In date prompts, an empty value or `none` clears the date. A new note or todo gets the selected tag.
+- In date prompts, an empty value or `none` clears the date.
 - doen asks for confirmation before it moves an item to the trash or deletes it. `-y` has no effect.
 - Each change is one transaction, with the same lock, file moves and Git commit as the matching command. doen reloads the store after each change; `ctrl-r` reloads it on demand.
 
@@ -694,28 +694,25 @@ ui_keys:
   help: f1
 ```
 
-When two actions share a key, the global actions win over the actions of the focused panel. For example, `enter` is both `submit` (in prompts, the search and the side panels) and `edit` (in the item list).
+When two actions share a key, the global actions win over the actions of the focused panel. For example, `enter` is both `submit` (in prompts and the search) and `edit` (in the item list).
 
 | Action | Default keys | Meaning |
 | --- | --- | --- |
 | `quit` | `q` | Quit. |
 | `help` | `?` | Show the keybindings. |
-| `toggle_panels` | `v` | Show or hide the views and tags panels. |
-| `focus_views` | `1` | Show the panels, focus the views. |
-| `focus_tags` | `2` | Show the panels, focus the tags. |
-| `focus_items` | `3` | Focus the items. |
-| `focus_preview` | `0` | Focus the preview. |
-| `next_panel` | `tab` `backtab` | Switch views ↔ tags, items ↔ preview. |
+| `focus_items` | `1` | Focus the items. |
+| `focus_preview` | `2` | Focus the preview. |
+| `next_panel` | `tab` `backtab` | Switch items ↔ preview. |
 | `focus_left` | `h` `left` | Focus the items. |
-| `focus_right` | `l` `right` | Focus the preview; in the panels, close them. |
-| `back` | `esc` | Close the panels, leave the preview, clear the search, cancel a prompt. |
-| `submit` | `enter` | Accept a prompt or the search; in the panels, close them. |
+| `focus_right` | `l` `right` | Focus the preview. |
+| `back` | `esc` | Leave the preview, clear the search, leave a list, cancel a prompt. |
+| `submit` | `enter` | Accept a prompt or the search. |
 | `confirm` | `y` `enter` | Answer yes to a question. |
 | `search` | `/` | Search the titles and bodies. |
 | `command` | `:` | Run a doen command, as on the command line. |
 | `reload` | `ctrl-r` | Reload the store. |
-| `new_note` | `n` | New note, with the selected tag. |
-| `new_todo` | `t` | New todo, with the selected tag. |
+| `new_note` | `n` | New note. |
+| `new_todo` | `t` | New todo. |
 | `down` | `j` `down` | Move down. |
 | `up` | `k` `up` | Move up. |
 | `top` | `g` `home` | Go to the first entry. |

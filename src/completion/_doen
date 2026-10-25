@@ -40,7 +40,7 @@ _doen() {
         '(-w --date)'{-w,--date}'[date range]:range:_doen_dates' '--created[created range]:range:_doen_dates'
         '(-S --scheduled)'{-S,--scheduled}'[scheduled range]:range:_doen_dates'
         '(-d --due)'{-d,--due}'[due range]:range:_doen_dates' '(-p --priority)'{-p,--priority}'[priorities]:priority:_values -s , priority 1 2 3 none'
-        '--closed[closed range]:range:_doen_dates'
+        '--closed[closed todos, optional range]::range:_doen_dates'
         '--overdue[overdue todos]' '(-q --query)'{-q,--query}'[text]:text:'
         '(-E --regex)'{-E,--regex}'[regex]' '(-a --all)'{-a,--all}'[include archived]'
         '--archived[only archived]' '--trashed[only trash]'
