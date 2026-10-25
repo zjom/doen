@@ -956,9 +956,11 @@ mod tests {
             i.meta.status,
             [(parse_iso("2026-10-15").unwrap(), Status::Done)]
         );
-        // Stdin is not available.
+        // Stdin is not available, nor are some commands.
         ui.command("reopen -");
         assert!(message(&ui).contains("stdin"));
+        ui.command("tags");
+        assert_eq!(message(&ui), "the command is not available in the ui");
     }
 
     #[test]

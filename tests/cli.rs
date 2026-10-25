@@ -999,3 +999,30 @@ fn purge_message_before_confirmation() {
     let label = o.stderr.find(&format!("  {keep}  keep")).expect(&o.stderr);
     assert!(purge < label, "{}", o.stderr);
 }
+
+#[test]
+fn complete_line() {
+    let e = Env::new();
+    let id = e.id(&["t", "call", "bank"]);
+    assert_eq!(e.ok(&["__complete", "line", "pri", ""]), "1\n2\n3\nnone\n");
+    assert_eq!(
+        e.ok(&["__complete", "line", "--", "pri", "2", ""]),
+        format!("{id}\tcall bank\n")
+    );
+    // Global options before the command word, and a store given by `--dir`.
+    let other = e.dir.path().join("other");
+    fs::create_dir(&other).unwrap();
+    let dir = other.to_str().unwrap();
+    assert_eq!(
+        e.ok(&["__complete", "line", "--", "-y", "due", "tod"]),
+        "today\n"
+    );
+    assert_eq!(
+        e.ok(&["__complete", "line", "--", "--dir", dir, "done", ""]),
+        ""
+    );
+    assert!(
+        e.ok(&["__complete", "line", "--", ""])
+            .contains("interactive\tInteractive mode\n")
+    );
+}

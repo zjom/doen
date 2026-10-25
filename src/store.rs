@@ -126,17 +126,22 @@ pub fn require_root(root: &Path) -> Result<()> {
 }
 
 impl Store {
-    /// Lists every folder, but parses only the files in `places`. Other items are parsed on
-    /// demand by `load`, for example when an ID resolves to them.
-    pub fn open(root: &Path, places: &[Place], warn_invalid: bool) -> Result<Store> {
-        require_root(root)?;
-        let mut store = Store {
+    /// A store without items, for a store that does not exist.
+    pub fn empty(root: &Path) -> Store {
+        Store {
             root: root.to_path_buf(),
             items: vec![],
             invalid: vec![],
             index: vec![],
             seen: HashSet::new(),
-        };
+        }
+    }
+
+    /// Lists every folder, but parses only the files in `places`. Other items are parsed on
+    /// demand by `load`, for example when an ID resolves to them.
+    pub fn open(root: &Path, places: &[Place], warn_invalid: bool) -> Result<Store> {
+        require_root(root)?;
+        let mut store = Store::empty(root);
         for place in Place::ALL {
             store.list(place)?;
         }

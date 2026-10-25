@@ -2,6 +2,7 @@ mod app;
 mod banner;
 mod cli;
 mod commands;
+mod complete;
 mod config;
 mod dates;
 mod editor;

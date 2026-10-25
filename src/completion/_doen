@@ -1,77 +1,19 @@
 #compdef doen
-# zsh completion for doen
-
-_doen_ids() {
-    local -a ids
-    ids=(${(f)"$(doen __complete ids 2>/dev/null | sed 's/:/\\:/g; s/\t/:/')"})
-    _describe 'id' ids
-}
-_doen_tags() {
-    local -a tags
-    tags=(${(f)"$(doen __complete tags 2>/dev/null)"})
-    _values -s , 'tag' $tags
-}
-_doen_dates() {
-    local -a d
-    d=(${(f)"$(doen __complete dates 2>/dev/null)"} W M Y LW LM LY)
-    _describe 'date' d
-}
+# zsh completion for doen: the candidates come from doen itself.
 
 _doen() {
-    local -a cmds
-    cmds=(
-        'note:create a note' 'todo:create a todo' 'ls:list items' 'today:agenda'
-        'show:print items' 'grep:full-text search' 'tags:list tags' 'interactive:interactive mode'
-        'edit:open in the editor' 'title:change the title' 'schedule:set the scheduled date' 'due:set the due date'
-        'date:set the date' 'priority:set the priority' 'tag:add or remove tags' 'done:mark done' 'drop:mark not doing'
-        'reopen:back to open' 'archive:archive' 'unarchive:unarchive' 'rm:move to the trash'
-        'restore:restore from the trash' 'trash:list or empty the trash' 'init:create the store'
-        'check:validate the store' 'completion:print a completion script' 'help:show help'
-    )
-    local -a common
-    common=(
-        '--dir[store directory]:dir:_directories' '--color[color mode]:when:(auto always never)'
-        '(-y --yes)'{-y,--yes}'[skip confirmation]' '(-h --help)'{-h,--help}'[show help]'
-    )
-    local -a filters
-    filters=(
-        '(-s --status)'{-s,--status}'[status]:status:(open done drop closed any)'
-        '*'{-t,--tag}'[tags]:tag:_doen_tags' '*'{-x,--exclude-tag}'[exclude tags]:tag:_doen_tags'
-        '(-w --date)'{-w,--date}'[date range]:range:_doen_dates' '--created[created range]:range:_doen_dates'
-        '(-S --scheduled)'{-S,--scheduled}'[scheduled range]:range:_doen_dates'
-        '(-d --due)'{-d,--due}'[due range]:range:_doen_dates' '(-p --priority)'{-p,--priority}'[priorities]:priority:_values -s , priority 1 2 3 none'
-        '--closed[closed todos, optional range]::range:_doen_dates'
-        '--overdue[overdue todos]' '(-q --query)'{-q,--query}'[text]:text:'
-        '(-E --regex)'{-E,--regex}'[regex]' '(-a --all)'{-a,--all}'[include archived]'
-        '--archived[only archived]' '--trashed[only trash]'
-        '--sort[sort field]:field:(due scheduled date created closed title status priority)' '(-r --reverse)'{-r,--reverse}'[reverse]'
-        '(-n --limit)'{-n,--limit}'[limit]:n:' '(-l --long)'{-l,--long}'[long]'
-        '--ids[only ids]' '--porcelain[porcelain]' '--json[json]'
-    )
-    if (( CURRENT == 2 )) && [[ $words[2] != -* ]]; then
-        _describe 'command' cmds
-        return
-    fi
-    case $words[2] in
-        n|note|t|todo)
-            _arguments $common '(-c --content)'{-c,--content}'[body]:text:' '*'{-t,--tag}'[tags]:tag:_doen_tags' \
-                '(-T --template)'{-T,--template}'[template]:template:(none $(doen __complete templates 2>/dev/null))' \
-                '(-w --date)'{-w,--date}'[date]:date:_doen_dates' '(-d --due)'{-d,--due}'[due]:date:_doen_dates' \
-                '(-S --scheduled)'{-S,--scheduled}'[scheduled]:date:_doen_dates' \
-                '(-p --priority)'{-p,--priority}'[priority]:priority:(1 2 3)' \
-                '(-e --edit)'{-e,--edit}'[edit]' '*:title:' ;;
-        ls|grep|trash|today|-*) _arguments $common $filters '--empty[empty the trash]' '--no-header[no banner]' '--no-footer[no cheatsheet]' '*:kind:(note todo)' ;;
-        tag) if (( CURRENT == 3 )); then _values 'action' add rm
-             elif (( CURRENT == 4 )); then _doen_tags
-             else _doen_ids; fi ;;
-        schedule|due|date) if (( CURRENT == 3 )); then _doen_dates; else _doen_ids; fi ;;
-        priority) if (( CURRENT == 3 )); then _values 'priority' 1 2 3 none; else _doen_ids; fi ;;
-        completion) _values 'shell' bash zsh fish ;;
-        help) _describe 'command' cmds ;;
-        init|check|tags) _arguments $common '--fix[repair]' '(-a --all)'{-a,--all}'[include archived]' ;;
-        rm) _arguments $common '(-f --force)'{-f,--force}'[delete permanently]' '*:id:_doen_ids' ;;
-        *) _arguments $common '--on[date]:date:_doen_dates' '--raw[raw]' '--path[path]' '*:id:_doen_ids' ;;
-    esac
+    local -a lines cands
+    local l
+    lines=(${(f)"$(doen __complete line -- "${(@)words[2,CURRENT-1]}" "${words[CURRENT]}" 2>/dev/null)"})
+    for l in $lines; do
+        # `value<TAB>help` becomes `value:help`, with the colons of the value escaped.
+        if [[ $l == *$'\t'* ]]; then
+            cands+=("${${l%%$'\t'*}//:/\\:}:${l#*$'\t'}")
+        else
+            cands+=("${l//:/\\:}")
+        fi
+    done
+    _describe 'doen' cands
 }
 
 _doen "$@"

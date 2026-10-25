@@ -446,5 +446,9 @@ pub struct HelpCmd {
 
 #[derive(Args, Debug)]
 pub struct CompleteCmd {
+    /// `line`, `ids`, `tags`, `templates` or `dates`
     pub what: String,
+    /// For `line`: the words after `doen`, the last one being the word to complete
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub words: Vec<String>,
 }

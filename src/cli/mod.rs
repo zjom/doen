@@ -2,6 +2,7 @@ pub mod args;
 pub mod resolve;
 
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 use clap::{CommandFactory, Parser};
 
@@ -27,7 +28,7 @@ fn parse<T: Parser>(argv: Vec<OsString>) -> Result<T> {
 }
 
 /// The index of the command word: the first argument that is not a global option.
-fn command_word(argv: &[OsString]) -> usize {
+pub(crate) fn command_word(argv: &[OsString]) -> usize {
     let cli = Cli::command();
     let mut i = 0;
     while let Some(a) = argv.get(i).and_then(|a| a.to_str()) {
@@ -79,14 +80,19 @@ struct Globals {
     global: GlobalArgs,
 }
 
+/// The `--dir` of the global options.
+pub(crate) fn dir_of(globals: &[OsString]) -> Option<PathBuf> {
+    try_parse::<Globals>(globals.to_vec())
+        .ok()
+        .and_then(|g| g.global.dir)
+}
+
 /// Whether an unknown command word is the ID of an item.
 fn is_id(globals: &[OsString], word: &str) -> bool {
     if word.len() < 2 || !word.bytes().all(|b| b.is_ascii_alphanumeric()) {
         return false;
     }
-    let dir = try_parse::<Globals>(globals.to_vec())
-        .ok()
-        .and_then(|g| g.global.dir);
+    let dir = dir_of(globals);
     Store::open(&store_path(dir.as_deref()), &[], false)
         .is_ok_and(|mut s| ids::resolve(&mut s, word, true).is_ok())
 }
@@ -123,7 +129,7 @@ pub fn run(argv: Vec<OsString>) -> Result<()> {
             Ok(())
         }
         Command::Help(c) => help(c.command.as_deref()),
-        Command::Complete(c) => completion::data(&app()?, &c.what),
+        Command::Complete(c) => completion::data(&app()?, c),
         cmd => {
             let app = app()?;
             app.run_tx(&[], |tx| {

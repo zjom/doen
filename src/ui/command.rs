@@ -11,8 +11,9 @@ use clap::error::ErrorKind;
 use crate::app::App;
 use crate::cli::args::{Cli, Command, CreateCmd, OutputArgs, TagAction, TrashCmd};
 use crate::cli::resolve::{Resolved, resolve};
-use crate::cli::{normalize, try_parse};
+use crate::cli::{command_word, normalize, try_parse};
 use crate::commands::{self, check, create, list};
+use crate::complete::UNAVAILABLE;
 use crate::dates::{Clock, parse_range};
 use crate::error::{Error, Result, usage};
 use crate::filter::{Query, SortField};
@@ -241,7 +242,12 @@ impl Ui {
         if words.is_empty() {
             return Ok(None);
         }
-        let cli = self.parse(normalize(words.into_iter().map(OsString::from).collect())?)?;
+        let argv = normalize(words.into_iter().map(OsString::from).collect())?;
+        let name = argv.get(command_word(&argv)).and_then(|w| w.to_str());
+        if name.is_some_and(|n| UNAVAILABLE.contains(&n)) {
+            return Err(usage("the command is not available in the ui"));
+        }
+        let cli = self.parse(argv)?;
         let g = &cli.global;
         if g.dir.is_some() {
             return Err(usage("--dir is not available in the ui"));
@@ -299,13 +305,6 @@ impl Ui {
                     format!("Move {titles} to the trash?")
                 };
                 self.confirm(question, ConfirmAction::Command(Box::new(Command::Rm(c))));
-            }
-            Command::Interactive
-            | Command::Init
-            | Command::Tags(_)
-            | Command::Completion(_)
-            | Command::Complete(_) => {
-                return Err(usage("the command is not available in the ui"));
             }
             cmd => self.run_command(cmd, yes),
         }
