@@ -2,16 +2,12 @@ use chrono::NaiveDate;
 
 use crate::app::App;
 use crate::cli::args::StatusCmd;
-use crate::commands::resolve_ids;
+use crate::commands::{require_todos, resolve_ids};
 use crate::dates::parse_date;
 use crate::error::{Result, usage, warn};
-use crate::item::{Item, Kind, Status};
+use crate::item::{Item, Status};
 
 pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
-    let verb = match status {
-        Status::Open => "reopen",
-        s => s.as_str(),
-    };
     let on = match &c.on {
         Some(s) => parse_date(s, &app.clock).map_err(usage)?,
         None => app.clock.today,
@@ -21,14 +17,9 @@ pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
     }
     let mut tx = app.begin()?;
     let idx = resolve_ids(&mut tx.store, &c.id, false)?;
+    require_todos(&tx.store, &idx, "a status")?;
     for &n in &idx {
         let item = &tx.store.items[n];
-        if item.kind() == Kind::Note {
-            return Err(usage(format!(
-                "{} is a note: only todos have a status",
-                item.id()
-            )));
-        }
         if item.meta.current_status() != Some(status)
             && let Some((last, _)) = item.meta.status.last()
             && on < *last
@@ -46,7 +37,7 @@ pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
             continue;
         }
         apply(app, &mut tx.store.items[n], status, on);
-        tx.save(n, verb)?;
+        tx.save(n, status.verb())?;
     }
     tx.finish(app)
 }

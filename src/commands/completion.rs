@@ -24,7 +24,6 @@ pub fn print(shell: Shell) {
 pub const DATES: &str =
     "today yesterday tomorrow mon tue wed thu fri sat sun eow eom eoy +1d +2d +1w +1m none";
 
-/// The names of the templates.
 pub fn templates(app: &App) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     for dir in template::dirs(app) {

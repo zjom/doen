@@ -1,48 +1,28 @@
 use crate::app::App;
-use crate::cli::args::EditCmd;
 use crate::commands::status;
-use crate::editor::{self, edit_again, validate};
+use crate::editor::{self, edit_again};
 use crate::error::{Result, general, warn};
 use crate::ids;
 use crate::item::{Item, Kind, Status};
 
-pub fn run(app: &App, c: EditCmd) -> Result<()> {
-    let mut store = app.store(&[])?;
-    let n = ids::resolve(&mut store, &c.id, false)?;
-    let id = store.items[n].id().to_string();
-    edit_item(app, &id, false)
-}
-
-/// Edits the item with the ID `id`. The lock is held only while doen saves the file.
+/// The lock is held only while doen saves the file.
 pub fn edit_item(app: &App, id: &str, quiet: bool) -> Result<()> {
     editor::require_terminal()?;
     let mut store = app.store(&[])?;
     let n = ids::resolve(&mut store, id, false)?;
-    let mut orig_item = store.items[n].clone();
+    let mut orig_item = store.items.swap_remove(n);
+    let id = orig_item.id().to_string();
     let mut orig_text = std::fs::read_to_string(&orig_item.path)?;
-    // Next to the item, so that relative links resolve in the editor.
     let dir = orig_item.path.parent().unwrap_or(app.root.as_path());
-    let tmp = tempfile::Builder::new()
-        .prefix(&format!(".doen-tmp-{id}-"))
-        .suffix(".md")
-        .tempfile_in(dir)?;
-    std::fs::write(tmp.path(), &orig_text)?;
+    let tmp = editor::temp_file(dir, &id, &orig_text)?;
     loop {
-        editor::open(app, tmp.path())?;
-        let text = std::fs::read_to_string(tmp.path())?;
+        let (text, edited) = editor::edit_valid(app, tmp.path(), &orig_item)?;
         if text == orig_text {
             eprintln!("doen: no changes");
             return Ok(());
         }
-        let edited = match validate(&orig_item, &text) {
-            Ok(i) => i,
-            Err(e) => {
-                edit_again(&format!("invalid frontmatter: {e}"))?;
-                continue;
-            }
-        };
         let mut tx = app.begin()?;
-        let n = ids::resolve(&mut tx.store, id, false)?;
+        let n = ids::resolve(&mut tx.store, &id, false)?;
         let current = std::fs::read_to_string(&tx.store.items[n].path)?;
         if current != orig_text {
             drop(tx);
@@ -50,7 +30,8 @@ pub fn edit_item(app: &App, id: &str, quiet: bool) -> Result<()> {
             // The next save compares with the new version of the file.
             orig_text = current;
             let mut store = app.store(&[])?;
-            let n = ids::resolve(&mut store, id, false).map_err(|_| general("the item is gone"))?;
+            let n =
+                ids::resolve(&mut store, &id, false).map_err(|_| general("the item is gone"))?;
             orig_item = store.items.swap_remove(n);
             continue;
         }

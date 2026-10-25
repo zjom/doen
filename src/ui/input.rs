@@ -51,7 +51,6 @@ impl Input {
             .map_or(self.cursor, |c| self.cursor + c.len_utf8())
     }
 
-    /// The start of the word before the cursor.
     fn word_start(&self) -> usize {
         let before = self.text[..self.cursor].trim_end();
         before.rfind(char::is_whitespace).map_or(0, |i| {

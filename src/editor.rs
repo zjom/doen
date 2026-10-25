@@ -1,9 +1,12 @@
 use std::path::Path;
 use std::process::Command;
 
+use tempfile::NamedTempFile;
+
 use crate::app::App;
 use crate::error::{Error, Result, general};
 use crate::item::Item;
+use crate::store::TMP_PREFIX;
 use crate::term;
 
 /// Runs the editor through `sh`, so that the editor setting can contain arguments.
@@ -42,8 +45,30 @@ pub fn edit_again(problem: &str) -> Result<()> {
     }
 }
 
+/// In `dir`, so that relative links resolve in the editor.
+pub fn temp_file(dir: &Path, name: &str, text: &str) -> Result<NamedTempFile> {
+    let tmp = tempfile::Builder::new()
+        .prefix(&format!("{TMP_PREFIX}{name}-"))
+        .suffix(".md")
+        .tempfile_in(dir)?;
+    std::fs::write(tmp.path(), text)?;
+    Ok(tmp)
+}
+
+/// Opens the editor until the text is a valid edit of `orig`, or the user discards it.
+pub fn edit_valid(app: &App, path: &Path, orig: &Item) -> Result<(String, Item)> {
+    loop {
+        open(app, path)?;
+        let text = std::fs::read_to_string(path)?;
+        match validate(orig, &text) {
+            Ok(item) => return Ok((text, item)),
+            Err(e) => edit_again(&format!("invalid frontmatter: {e}"))?,
+        }
+    }
+}
+
 /// Parses the edited text and checks the read-only fields against the original item.
-pub fn validate(orig: &Item, text: &str) -> std::result::Result<Item, String> {
+fn validate(orig: &Item, text: &str) -> std::result::Result<Item, String> {
     let item =
         Item::parse(&orig.path, orig.place, text)?.ok_or("the frontmatter has no 'id' field")?;
     for key in ["id", "kind", "created"] {

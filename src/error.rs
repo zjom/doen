@@ -49,7 +49,6 @@ pub fn general(msg: impl Into<String>) -> Error {
     Error::General(msg.into())
 }
 
-/// Prints a warning on stderr.
 pub fn warn(msg: impl fmt::Display) {
     eprintln!("doen: warning: {msg}");
 }

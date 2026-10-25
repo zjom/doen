@@ -30,6 +30,14 @@ pub fn ask(prompt: &str) -> std::io::Result<String> {
     Ok(line)
 }
 
+pub fn confirm(question: &str) -> std::io::Result<bool> {
+    let answer = ask(&format!("{question} [y/N] "))?;
+    Ok(matches!(
+        answer.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
+}
+
 /// The width of the terminal: `$COLUMNS`, then the size of the terminal on stdout.
 pub fn width() -> Option<usize> {
     if let Some(n) = std::env::var("COLUMNS")

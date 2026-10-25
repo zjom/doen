@@ -26,13 +26,13 @@ pub fn run(app: &App, c: TagsCmd) -> Result<()> {
             *counts.entry(t).or_default() += 1;
         }
     }
-    if c.json {
+    if c.format.json {
         let v: Vec<serde_json::Value> = counts
             .iter()
             .map(|(t, n)| serde_json::json!({"tag": t, "count": n}))
             .collect();
         println!("{}", serde_json::to_string_pretty(&v).expect("JSON"));
-    } else if c.porcelain {
+    } else if c.format.porcelain {
         for (t, n) in &counts {
             println!("{t}\t{n}");
         }

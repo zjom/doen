@@ -6,7 +6,7 @@ use crate::cli::args::CheckCmd;
 use crate::error::{Error, Result};
 use crate::ids;
 use crate::item::{Item, Place};
-use crate::store::{Change, Changes, Store, filename, filename_id};
+use crate::store::{Change, Changes, Store, TMP_PREFIX, filename, filename_id};
 use crate::term;
 
 pub fn run(app: &App, c: CheckCmd) -> Result<()> {
@@ -124,8 +124,8 @@ fn report(store: &mut Store, mut changes: Option<&mut Changes>) -> Result<usize>
     Ok(open)
 }
 
-/// Lists the temporary files that doen left behind, for example after a crash or while an editor
-/// is open, and offers to delete them. Returns the number of files that are not deleted.
+/// Offers to delete the temporary files left behind by a crash or an open editor. Returns the
+/// number of files that are not deleted.
 fn temp_files(app: &App) -> Result<usize> {
     let mut found: Vec<(PathBuf, String)> = vec![];
     for place in Place::ALL {
@@ -135,7 +135,7 @@ fn temp_files(app: &App) -> Result<usize> {
         let mut paths: Vec<PathBuf> = entries
             .filter_map(|e| e.ok())
             .filter(|e| {
-                e.file_name().to_string_lossy().starts_with(".doen-tmp-")
+                e.file_name().to_string_lossy().starts_with(TMP_PREFIX)
                     && e.file_type().is_ok_and(|t| t.is_file())
             })
             .map(|e| e.path())
@@ -155,18 +155,13 @@ fn temp_files(app: &App) -> Result<usize> {
     for (path, title) in &found {
         println!("{}: temporary file: {title}", path.display());
     }
-    if !app.yes {
-        let question = format!(
-            "Delete {} temporary file{}? An open editor may still use it. [y/N] ",
-            found.len(),
-            if found.len() == 1 { "" } else { "s" }
-        );
-        let Ok(answer) = term::ask(&question) else {
-            return Ok(found.len());
-        };
-        if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-            return Ok(found.len());
-        }
+    let question = format!(
+        "Delete {} temporary file{}? An open editor may still use it.",
+        found.len(),
+        if found.len() == 1 { "" } else { "s" }
+    );
+    if !app.yes && !term::confirm(&question).unwrap_or(false) {
+        return Ok(found.len());
     }
     for (path, _) in &found {
         std::fs::remove_file(path)?;

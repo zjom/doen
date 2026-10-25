@@ -41,6 +41,13 @@ impl Status {
         }
     }
 
+    pub fn verb(self) -> &'static str {
+        match self {
+            Status::Open => "reopen",
+            s => s.as_str(),
+        }
+    }
+
     pub fn parse(s: &str) -> Option<Status> {
         match s {
             "open" => Some(Status::Open),
@@ -171,7 +178,6 @@ pub fn find_heading(body: &str, kind: Kind) -> Option<Heading> {
     None
 }
 
-/// Parses a priority: `1`, `2` or `3`.
 pub fn parse_priority(s: &str) -> Option<u8> {
     match s {
         "1" => Some(1),
@@ -180,6 +186,18 @@ pub fn parse_priority(s: &str) -> Option<u8> {
         _ => None,
     }
 }
+
+/// `none` is no priority.
+pub fn parse_priority_or_none(s: &str) -> Result<Option<u8>, String> {
+    match s {
+        "none" => Ok(None),
+        s => parse_priority(s)
+            .map(Some)
+            .ok_or_else(|| format!("invalid priority '{s}': use 1, 2, 3 or none")),
+    }
+}
+
+pub const TODO_ONLY: [&str; 4] = ["scheduled", "due", "priority", "status"];
 
 fn date_field(doc: &Doc, key: &str) -> Result<Option<NaiveDate>, String> {
     match doc.get(key) {
@@ -211,20 +229,17 @@ impl Meta {
             Some(k) => return Err(format!("invalid kind '{k}'")),
             None => return Err("missing 'kind'".into()),
         };
+        if kind == Kind::Note
+            && let Some(k) = TODO_ONLY.iter().find(|k| doc.get(k).is_some())
+        {
+            return Err(format!("a note cannot have '{k}'"));
+        }
         let created = match doc.get_str("created") {
             Some(s) => parse_timestamp(s)
                 .ok_or_else(|| format!("invalid timestamp in 'created': '{s}'"))?,
             None => return Err("missing 'created'".into()),
         };
         let date = date_field(doc, "date")?.ok_or("missing 'date'")?;
-        let scheduled = date_field(doc, "scheduled")?;
-        if scheduled.is_some() && kind == Kind::Note {
-            return Err("a note cannot have 'scheduled'".into());
-        }
-        let due = date_field(doc, "due")?;
-        if due.is_some() && kind == Kind::Note {
-            return Err("a note cannot have 'due'".into());
-        }
         let priority = match doc.get("priority") {
             None => None,
             Some(Value::Str(s)) => {
@@ -232,9 +247,6 @@ impl Meta {
             }
             Some(_) => return Err("'priority' must be 1, 2 or 3".into()),
         };
-        if priority.is_some() && kind == Kind::Note {
-            return Err("a note cannot have 'priority'".into());
-        }
         let mut tag_list = vec![];
         let mut bad_tags = vec![];
         match doc.get("tags") {
@@ -265,9 +277,6 @@ impl Meta {
                         _ => return Err("invalid entry in 'status'".into()),
                     }
                 }
-                if kind == Kind::Note {
-                    return Err("a note cannot have 'status'".into());
-                }
             }
             Some(_) => return Err("'status' must be a list".into()),
         }
@@ -276,8 +285,8 @@ impl Meta {
             kind,
             created,
             date,
-            scheduled,
-            due,
+            scheduled: date_field(doc, "scheduled")?,
+            due: date_field(doc, "due")?,
             priority,
             tags: tag_list,
             bad_tags,
@@ -368,39 +377,37 @@ impl Item {
         format!("{}{}", self.doc.render(), self.body)
     }
 
-    pub fn refresh(&mut self) -> Result<(), String> {
-        self.meta = Meta::parse(&self.doc, &self.body)?.ok_or("missing 'id'")?;
-        Ok(())
+    fn refresh(&mut self) {
+        self.meta = Meta::parse(&self.doc, &self.body)
+            .ok()
+            .flatten()
+            .expect("doen wrote invalid frontmatter");
     }
 
-    fn refreshed(&mut self) {
-        self.refresh().expect("doen wrote invalid frontmatter");
+    fn set_opt(&mut self, key: &str, v: Option<String>) {
+        match v {
+            Some(v) => self.doc.set(key, Value::Str(v), false),
+            None => self.doc.remove(key),
+        }
+        self.refresh();
     }
 
     pub fn set_date(&mut self, key: &str, d: Option<NaiveDate>) {
-        match d {
-            Some(d) => self.doc.set(key, Value::Str(format_iso(d)), false),
-            None => self.doc.remove(key),
-        }
-        self.refreshed();
+        self.set_opt(key, d.map(format_iso));
     }
 
     pub fn set_priority(&mut self, p: Option<u8>) {
-        match p {
-            Some(p) => self.doc.set("priority", Value::Str(p.to_string()), false),
-            None => self.doc.remove("priority"),
-        }
-        self.refreshed();
+        self.set_opt("priority", p.map(|p| p.to_string()));
     }
 
     pub fn set_tags(&mut self, tags: &[String]) {
         self.doc.set("tags", tags::to_value(tags), true);
-        self.refreshed();
+        self.refresh();
     }
 
     pub fn set_id(&mut self, id: &str) {
         self.doc.set("id", Value::Str(id.into()), true);
-        self.refreshed();
+        self.refresh();
     }
 
     /// Appends an entry to the status log and rewrites the checkbox.
@@ -414,7 +421,7 @@ impl Item {
             ("status".into(), Value::Str(status.as_str().into())),
         ]));
         self.doc.set("status", Value::Seq(entries), false);
-        self.refreshed();
+        self.refresh();
         self.sync_checkbox();
     }
 
@@ -428,7 +435,7 @@ impl Item {
             Some(h) => self.body.replace_range(h.start..h.end, &line),
             None => self.body.insert_str(0, &format!("{line}\n")),
         }
-        self.refreshed();
+        self.refresh();
     }
 
     /// The checkbox that the status log asks for, if it differs from the heading.
@@ -438,15 +445,10 @@ impl Item {
         (h.checkbox != Some(want)).then_some(want)
     }
 
-    /// Rewrites the checkbox from the status log. Returns `true` if the body changed.
-    pub fn sync_checkbox(&mut self) -> bool {
-        match self.checkbox_mismatch() {
-            Some(c) => {
-                let title = self.title().to_string();
-                self.set_heading(Some(c), &title);
-                true
-            }
-            None => false,
+    pub fn sync_checkbox(&mut self) {
+        if let Some(c) = self.checkbox_mismatch() {
+            let title = self.title().to_string();
+            self.set_heading(Some(c), &title);
         }
     }
 

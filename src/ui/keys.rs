@@ -74,7 +74,6 @@ pub struct Spec {
     pub name: &'static str,
     pub keys: &'static [&'static str],
     pub section: Section,
-    /// The description in the help.
     pub help: &'static str,
 }
 
@@ -281,12 +280,10 @@ impl Keymap {
         self.0[a as usize].iter().any(|k| k.matches(e))
     }
 
-    /// The first key of the action, for the status bar.
     pub fn first(&self, a: Action) -> Option<String> {
         self.0[a as usize].first().map(Key::to_string)
     }
 
-    /// Every key of the action, for the help.
     pub fn all(&self, a: Action) -> String {
         let keys: Vec<String> = self.0[a as usize].iter().map(Key::to_string).collect();
         if keys.is_empty() {

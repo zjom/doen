@@ -7,7 +7,7 @@ use crate::cli::args::{FilterArgs, GrepCmd, LsCmd, OutputArgs, TodayCmd, TrashCm
 use crate::dates::{Clock, Range, parse_range};
 use crate::error::{Error, Result, usage};
 use crate::filter::{Query, SortField, StatusFilter, TextMatch, select};
-use crate::item::{Item, Kind, Place, Status, parse_priority};
+use crate::item::{Item, Kind, Place, Status, parse_priority_or_none};
 use crate::output::{Format, limit, print_groups};
 use crate::tags::TagFilter;
 use crate::term::stdout_is_terminal;
@@ -91,22 +91,19 @@ pub fn query(
         created: range(f.created.as_deref(), clock)?,
         scheduled: range(f.scheduled.as_deref(), clock)?,
         due,
-        priority: f.priority.as_deref().map(priorities).transpose()?,
+        priority: f
+            .priority
+            .as_deref()
+            .map(|s| {
+                s.split(',')
+                    .map(|p| parse_priority_or_none(p.trim()))
+                    .collect()
+            })
+            .transpose()
+            .map_err(usage)?,
         closed: range(f.closed.as_ref().and_then(Option::as_deref), clock)?,
         text,
     })
-}
-
-/// Parses a `-p` value: priorities and `none`, separated by commas.
-fn priorities(s: &str) -> Result<Vec<Option<u8>>> {
-    s.split(',')
-        .map(|p| match p.trim() {
-            "none" => Ok(None),
-            p => parse_priority(p)
-                .map(Some)
-                .ok_or_else(|| usage(format!("invalid priority '{p}': use 1, 2, 3 or none"))),
-        })
-        .collect()
 }
 
 /// Limits and prints groups of items. Returns the number of items printed.
@@ -120,12 +117,21 @@ fn print(app: &App, mut groups: Vec<(&str, Vec<&Item>)>, output: &OutputArgs) ->
 fn list(app: &App, q: &Query, output: &OutputArgs) -> Result<usize> {
     let store = app.store(&q.places)?;
     let matching = store.items.iter().filter(|i| q.accepts(i, &app.clock));
-    let (todos, notes) = select(
+    let groups = groups(
         matching,
         output.sort.or(app.cfg.default_sort),
         output.reverse,
     );
-    Ok(print(app, vec![("TODOS", todos), ("NOTES", notes)], output))
+    Ok(print(app, groups, output))
+}
+
+pub fn groups<'a>(
+    items: impl Iterator<Item = &'a Item>,
+    field: Option<SortField>,
+    reverse: bool,
+) -> Vec<(&'static str, Vec<&'a Item>)> {
+    let (todos, notes) = select(items, field, reverse);
+    vec![("TODOS", todos), ("NOTES", notes)]
 }
 
 pub fn ls(app: &App, c: LsCmd) -> Result<()> {

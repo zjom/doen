@@ -6,22 +6,21 @@
 use std::ffi::OsString;
 use std::process::Stdio;
 
-use clap::Parser;
 use clap::error::ErrorKind;
 
 use crate::app::App;
 use crate::cli::args::{Cli, Command, CreateCmd, OutputArgs};
-use crate::cli::normalize;
 use crate::cli::resolve::{Resolved, resolve};
+use crate::cli::{normalize, try_parse};
 use crate::commands::{create, list};
 use crate::dates::{Clock, parse_range};
 use crate::error::{Result, general, usage};
-use crate::filter::{Query, SortField, select};
+use crate::filter::{Query, SortField};
 use crate::ids;
 use crate::item::{Item, Kind};
 use crate::output::limit;
 
-use super::{ConfirmAction, Focus, Popup, Ui};
+use super::{ConfirmAction, EMPTY_TRASH, Focus, Popup, Ui};
 
 /// The item list of a list command.
 pub struct Listing {
@@ -61,9 +60,7 @@ impl Listing {
         let items = items.into_iter();
         let mut groups = match &self.kind {
             ListKind::Query(q) => {
-                let (todos, notes) =
-                    select(items.filter(|i| q.accepts(i, clock)), sort, self.reverse);
-                vec![("TODOS", todos), ("NOTES", notes)]
+                list::groups(items.filter(|i| q.accepts(i, clock)), sort, self.reverse)
             }
             ListKind::Agenda(q) => list::agenda(
                 items.filter(|i| q.accepts(i, clock)),
@@ -73,8 +70,7 @@ impl Listing {
             ),
             ListKind::Ids(ids) => {
                 let shown = items.filter(|i| ids.iter().any(|id| id == i.id()));
-                let (todos, notes) = select(shown, sort, self.reverse);
-                vec![("TODOS", todos), ("NOTES", notes)]
+                list::groups(shown, sort, self.reverse)
             }
         };
         limit(&mut groups, self.limit);
@@ -273,10 +269,9 @@ impl Ui {
                 let q = list::grep_query(&c, clock)?;
                 self.show_listing(Listing::new(ListKind::Query(q), &c.output));
             }
-            Command::Trash(c) if c.empty && !yes => self.confirm(
-                "Delete every item in the trash permanently?".into(),
-                ConfirmAction::Command(full),
-            ),
+            Command::Trash(c) if c.empty && !yes => {
+                self.confirm(EMPTY_TRASH.into(), ConfirmAction::Command(full))
+            }
             Command::Trash(c) if !c.empty => {
                 let q = list::trash_query(&c, clock)?;
                 self.show_listing(Listing::new(ListKind::Query(q), &c.output));
@@ -326,7 +321,7 @@ impl Ui {
     }
 
     /// Creates an item. Returns the ID if it is to be edited.
-    fn create_cmd(&mut self, kind: Kind, c: CreateCmd) -> Result<Option<String>> {
+    pub(super) fn create_cmd(&mut self, kind: Kind, c: CreateCmd) -> Result<Option<String>> {
         if c.title.join("").trim().is_empty() {
             return Err(usage("the title cannot be empty"));
         }
@@ -345,9 +340,7 @@ impl Ui {
 
     /// Parses the normalized words. If IDs are missing, the selected item is the ID.
     fn parse(&self, mut argv: Vec<OsString>) -> Result<(Cli, Vec<OsString>)> {
-        let parse = |a: &[OsString]| {
-            Cli::try_parse_from(std::iter::once(OsString::from("doen")).chain(a.iter().cloned()))
-        };
+        let parse = |a: &[OsString]| try_parse::<Cli>(a.iter().cloned());
         let e = match parse(&argv) {
             Ok(cli) => return Ok((cli, argv)),
             Err(e) => e,

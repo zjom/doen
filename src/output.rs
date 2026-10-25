@@ -1,7 +1,7 @@
-use chrono::NaiveDate;
+use unicode_width::UnicodeWidthChar;
 
 use crate::app::App;
-use crate::dates::{display, format_iso};
+use crate::dates::format_iso;
 use crate::item::{Item, Kind, Status};
 use crate::term;
 
@@ -81,15 +81,7 @@ fn date_labels(kind: Kind, long: bool) -> &'static [&'static str] {
 /// `date` field in the column after the due date. `long` adds the creation time, the date and the
 /// status history of todos. With `long`, the creation time and the date of both kinds line up.
 fn date_cells(item: &Item, app: &App, long: bool) -> Vec<String> {
-    let show = |d: NaiveDate, overdue: bool| {
-        display(
-            d,
-            &app.clock,
-            app.cfg.relative_days,
-            &app.cfg.date_format,
-            overdue,
-        )
-    };
+    let show = |d, overdue| app.show_date(d, overdue);
     let m = &item.meta;
     let created = m
         .created
@@ -109,18 +101,18 @@ fn date_cells(item: &Item, app: &App, long: bool) -> Vec<String> {
             if long {
                 cells.push(created);
                 cells.push(show(m.date, false));
-                cells.push(history(item));
+                cells.push(history(item, "%m-%d"));
             }
             cells
         }
     }
 }
 
-fn history(item: &Item) -> String {
+pub fn history(item: &Item, date_format: &str) -> String {
     item.meta
         .status
         .iter()
-        .map(|(d, s)| format!("{} {}", s.as_str(), d.format("%m-%d")))
+        .map(|(d, s)| format!("{} {}", s.as_str(), d.format(date_format)))
         .collect::<Vec<_>>()
         .join(" → ")
 }
@@ -133,14 +125,14 @@ fn width(s: &str) -> usize {
         if c == '\x1b' {
             chars.by_ref().find(|&c| c == 'm');
         } else {
-            n += 1;
+            n += c.width().unwrap_or(0);
         }
     }
     n
 }
 
 /// Cuts `s` to at most `w` columns, ending it with `…` if it is cut. Color codes are kept.
-fn truncate(s: &str, w: usize) -> String {
+pub fn truncate(s: &str, w: usize) -> String {
     if width(s) <= w {
         return s.to_string();
     }
@@ -157,9 +149,11 @@ fn truncate(s: &str, w: usize) -> String {
                     break;
                 }
             }
-        } else if n < keep {
+        } else if n + c.width().unwrap_or(0) <= keep {
             out.push(c);
-            n += 1;
+            n += c.width().unwrap_or(0);
+        } else {
+            n = w.max(1);
         }
     }
     out.truncate(out.trim_end().len());
@@ -170,7 +164,7 @@ fn pad(s: &str, w: usize) -> String {
     format!("{s}{}", " ".repeat(w.saturating_sub(width(s))))
 }
 
-fn hashtags(tags: &[String]) -> String {
+pub fn hashtags(tags: &[String]) -> String {
     tags.iter()
         .map(|t| format!("#{t}"))
         .collect::<Vec<_>>()
@@ -187,7 +181,6 @@ pub fn limit(groups: &mut [(&str, Vec<&Item>)], limit: Option<usize>) {
     }
 }
 
-/// Prints groups of items in the requested format.
 pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, long: bool) {
     let all: Vec<&Item> = groups.iter().flat_map(|(_, g)| g.iter().copied()).collect();
     if print_machine(&all, format) {
@@ -241,7 +234,7 @@ pub fn print_groups(app: &App, groups: &[(&str, Vec<&Item>)], format: Format, lo
                 .iter()
                 .flat_map(|(_, r)| r)
                 .filter_map(|r| r.dates.get(n));
-            let w = cells.map(|d| d.chars().count()).max().unwrap_or(0);
+            let w = cells.map(|d| self::width(d)).max().unwrap_or(0);
             let labels = groups
                 .iter()
                 .filter_map(|(_, r)| date_labels(r[0].item.kind(), long).get(n));
@@ -312,20 +305,17 @@ pub fn summary(item: &Item, app: &App) -> String {
     if let Some(p) = m.priority {
         parts.push(format!("priority {p}"));
     }
-    if let Some(d) = m.scheduled {
-        parts.push(format!("scheduled {}", d.format(&app.cfg.date_format)));
-    }
-    if let Some(d) = m.due {
-        parts.push(format!("due {}", d.format(&app.cfg.date_format)));
-    }
-    if m.kind == Kind::Note || m.date != app.clock.local_day(&m.created) {
-        parts.push(format!("date {}", m.date.format(&app.cfg.date_format)));
-    }
-    if let Some(d) = m.archived {
-        parts.push(format!("archived {}", d.format(&app.cfg.date_format)));
-    }
-    if let Some(d) = m.trashed {
-        parts.push(format!("trashed {}", d.format(&app.cfg.date_format)));
+    let own_date = m.kind == Kind::Note || m.date != app.clock.local_day(&m.created);
+    for (label, d) in [
+        ("scheduled", m.scheduled),
+        ("due", m.due),
+        ("date", own_date.then_some(m.date)),
+        ("archived", m.archived),
+        ("trashed", m.trashed),
+    ] {
+        if let Some(d) = d {
+            parts.push(format!("{label} {}", d.format(&app.cfg.date_format)));
+        }
     }
     if !m.tags.is_empty() {
         parts.push(hashtags(&m.tags));

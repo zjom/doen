@@ -7,7 +7,6 @@ mod draw;
 mod input;
 pub mod keys;
 
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::stdout;
 
@@ -21,15 +20,15 @@ use ratatui::widgets::ListState;
 
 use crate::app::App;
 use crate::cli::args::CreateCmd;
-use crate::commands::{create, edit, meta, status};
-use crate::dates::{format_iso, parse_date};
+use crate::commands::meta::{self, DateField};
+use crate::commands::{edit, status};
+use crate::dates::format_iso;
 use crate::error::{Error, Result, general, usage};
 use crate::filter::select;
 use crate::ids;
 use crate::item::{Item, Kind, Place, Status};
-use crate::store::{self, Change, Store};
+use crate::store::{Change, Store};
 use crate::tags;
-
 use crate::term;
 use complete::Menu;
 use input::Input;
@@ -59,12 +58,12 @@ pub enum Row {
 pub enum InputAction {
     Create(Kind),
     Title(String),
-    Schedule(String),
-    Due(String),
-    Date(String),
+    Date(DateField, String),
     Tags(String),
     Command,
 }
+
+const EMPTY_TRASH: &str = "Delete every item in the trash permanently?";
 
 pub enum ConfirmAction {
     Trash(String),
@@ -201,10 +200,6 @@ impl Ui {
             None => todos(found, &self.app),
         };
 
-        let index: HashMap<*const Item, usize> = (self.store.items.iter())
-            .enumerate()
-            .map(|(n, i)| (i as *const Item, n))
-            .collect();
         let mut rows = vec![];
         for (header, items) in groups {
             if items.is_empty() {
@@ -214,7 +209,7 @@ impl Ui {
             rows.extend(
                 items
                     .into_iter()
-                    .map(|i| Row::Item(index[&(i as *const Item)])),
+                    .map(|i| Row::Item(self.store.items.element_offset(i).expect("a store item"))),
             );
         }
         self.item_rows = (0..rows.len())
@@ -271,7 +266,6 @@ impl Ui {
         self.app.cfg.ui_keys.is(a, key)
     }
 
-    /// The first key of an action, for messages.
     fn key_name(&self, a: Action) -> String {
         self.app
             .cfg
@@ -366,22 +360,30 @@ impl Ui {
     }
 
     fn preview_key(&mut self, key: KeyEvent) {
-        let is = |a| self.is(a, &key);
-        if is(Action::Down) || is(Action::PreviewDown) {
-            self.scroll_preview(1);
-        } else if is(Action::Up) || is(Action::PreviewUp) {
-            self.scroll_preview(-1);
-        } else if is(Action::PageDown) || is(Action::PreviewPageDown) {
-            self.scroll_preview(10);
-        } else if is(Action::PageUp) || is(Action::PreviewPageUp) {
-            self.scroll_preview(-10);
-        } else if is(Action::Top) {
+        if self.is(Action::Top, &key) {
             self.preview_scroll = 0;
+        } else {
+            self.scroll_preview(&key, true);
         }
     }
 
-    fn scroll_preview(&mut self, by: i32) {
+    /// Scrolls by a preview action, or with `movement` also by a movement action. Returns
+    /// whether the key scrolled.
+    fn scroll_preview(&mut self, key: &KeyEvent, movement: bool) -> bool {
+        let steps = [
+            (Action::PreviewDown, Action::Down, 1),
+            (Action::PreviewUp, Action::Up, -1),
+            (Action::PreviewPageDown, Action::PageDown, 10),
+            (Action::PreviewPageUp, Action::PageUp, -10),
+        ];
+        let Some((.., by)) = steps
+            .into_iter()
+            .find(|&(p, m, _)| self.is(p, key) || movement && self.is(m, key))
+        else {
+            return false;
+        };
         self.preview_scroll = (self.preview_scroll as i32 + by).max(0) as u16;
+        true
     }
 
     /// Whether the key types a character into a text field. Such keys never run an action.
@@ -415,28 +417,18 @@ impl Ui {
             self.set_cursor(n);
             return None;
         }
-        let is = |a| self.is(a, &key);
-        if is(Action::PreviewDown) {
-            self.scroll_preview(1);
-        } else if is(Action::PreviewUp) {
-            self.scroll_preview(-1);
-        } else if is(Action::PreviewPageDown) {
-            self.scroll_preview(10);
-        } else if is(Action::PreviewPageUp) {
-            self.scroll_preview(-10);
-        } else if is(Action::EmptyTrash) && self.selected().is_some_and(|i| i.place == Place::Trash)
-        {
-            self.confirm(
-                "Delete every item in the trash permanently?".into(),
-                ConfirmAction::EmptyTrash,
-            );
-        } else {
-            return self.item_action(key);
+        if self.scroll_preview(&key, false) {
+            return None;
         }
-        None
+        if self.is(Action::EmptyTrash, &key)
+            && self.selected().is_some_and(|i| i.place == Place::Trash)
+        {
+            self.confirm(EMPTY_TRASH.into(), ConfirmAction::EmptyTrash);
+            return None;
+        }
+        self.item_action(key)
     }
 
-    /// Runs an action on the selected item.
     fn item_action(&mut self, key: KeyEvent) -> Option<String> {
         let item = self.selected()?;
         let (id, title) = (item.id().to_string(), item.title().to_string());
@@ -456,10 +448,7 @@ impl Ui {
                 ConfirmAction::Trash(id),
             ),
             Action::Restore if trashed => {
-                let r = self.mutate(&id, "restore", |_, i| {
-                    i.set_date("trashed", None);
-                    Ok(())
-                });
+                let r = self.mutate(&id, "restore", |i| i.set_date("trashed", None));
                 self.after(r, &id);
             }
             Action::Restore => self.error(usage("the item is not in the trash")),
@@ -479,27 +468,15 @@ impl Ui {
                     Some(_) => ("unarchive", None),
                     None => ("archive", Some(self.app.clock.today)),
                 };
-                let r = self.mutate(&id, verb, |_, i| {
-                    i.set_date("archived", set);
-                    Ok(())
-                });
+                let r = self.mutate(&id, verb, |i| i.set_date("archived", set));
                 self.after(r, &id);
             }
             Action::PriorityUp => self.bump_priority(&id, 1),
             Action::PriorityDown => self.bump_priority(&id, -1),
             Action::Rename => self.prompt("Title", &title, InputAction::Title(id)),
-            Action::Schedule => {
-                let cur = self.selected()?.meta.scheduled.map(format_iso);
-                self.date_prompt("Scheduled", cur, InputAction::Schedule(id));
-            }
-            Action::Due => {
-                let cur = self.selected()?.meta.due.map(format_iso);
-                self.date_prompt("Due", cur, InputAction::Due(id));
-            }
-            Action::Date => {
-                let cur = format_iso(self.selected()?.meta.date);
-                self.prompt("Date", &cur, InputAction::Date(id));
-            }
+            Action::Schedule => self.date_prompt("Scheduled", DateField::Scheduled, id),
+            Action::Due => self.date_prompt("Due", DateField::Due, id),
+            Action::Date => self.date_prompt("Date", DateField::Date, id),
             Action::Tags => {
                 let cur = self.selected()?.meta.tags.join(", ");
                 self.prompt("Tags (comma-separated)", &cur, InputAction::Tags(id));
@@ -518,16 +495,21 @@ impl Ui {
         });
     }
 
-    fn date_prompt(&mut self, title: &str, value: Option<String>, action: InputAction) {
-        if self.selected().is_some_and(|i| i.kind() == Kind::Note) {
-            self.error(usage(format!(
-                "only todos have a {} date",
-                title.to_lowercase()
-            )));
+    fn date_prompt(&mut self, title: &str, field: DateField, id: String) {
+        let Some(item) = self.selected() else {
+            return;
+        };
+        if field.todo_only() && item.kind() == Kind::Note {
+            self.error(usage(format!("only todos have a {} date", field.key())));
             return;
         }
-        let title = format!("{title} (date, or empty to clear)");
-        self.prompt(&title, &value.unwrap_or_default(), action);
+        let value = field.get(&item.meta).map(format_iso).unwrap_or_default();
+        let title = if field.todo_only() {
+            format!("{title} (date, or empty to clear)")
+        } else {
+            title.to_string()
+        };
+        self.prompt(&title, &value, InputAction::Date(field, id));
     }
 
     fn confirm(&mut self, message: String, action: ConfirmAction) {
@@ -565,24 +547,16 @@ impl Ui {
             Popup::Input {
                 title,
                 mut input,
-                action: InputAction::Command,
-                menu,
-            } => {
-                let menu = self.command_key(&mut input, menu, key);
-                self.popup = Some(Popup::Input {
-                    title,
-                    input,
-                    action: InputAction::Command,
-                    menu,
-                });
-            }
-            Popup::Input {
-                title,
-                mut input,
                 action,
                 menu,
             } => {
-                input.handle(key);
+                let menu = match action {
+                    InputAction::Command => self.command_key(&mut input, menu, key),
+                    _ => {
+                        input.handle(key);
+                        menu
+                    }
+                };
                 self.popup = Some(Popup::Input {
                     title,
                     input,
@@ -596,12 +570,7 @@ impl Ui {
 
     /// Handles an editing key or a completion key on the command line. Tab puts the next
     /// candidate in the line and shift-tab the previous one; typing a word shows its candidates.
-    fn command_key(
-        &mut self,
-        input: &mut Input,
-        menu: Option<Menu>,
-        key: KeyEvent,
-    ) -> Option<Menu> {
+    fn command_key(&self, input: &mut Input, menu: Option<Menu>, key: KeyEvent) -> Option<Menu> {
         let back = key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT);
         if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
             menu.or_else(|| Menu::new(input, &self.store, &self.app))
@@ -617,10 +586,7 @@ impl Ui {
         let today = self.app.clock.today;
         match action {
             ConfirmAction::Trash(id) => {
-                let r = self.mutate(&id, "rm", |_, i| {
-                    i.set_date("trashed", Some(today));
-                    Ok(())
-                });
+                let r = self.mutate(&id, "rm", |i| i.set_date("trashed", Some(today)));
                 self.after(r, &id);
             }
             ConfirmAction::Delete(id) => {
@@ -636,55 +602,38 @@ impl Ui {
     }
 
     fn run_input(&mut self, action: InputAction, text: &str) {
-        let id = match action {
+        let (id, r) = match action {
             InputAction::Create(kind) => {
-                let r = self.create(kind, text);
-                let id = r.as_ref().map_or(String::new(), Clone::clone);
-                return self.after(r.map(|id| format!("created  {id}")), &id);
+                let c = CreateCmd {
+                    title: vec![text.to_string()],
+                    ..CreateCmd::default()
+                };
+                if let Err(e) = self.create_cmd(kind, c) {
+                    self.error(e);
+                }
+                return;
             }
             InputAction::Command => unreachable!("run by `command`"),
-            InputAction::Title(ref id)
-            | InputAction::Schedule(ref id)
-            | InputAction::Due(ref id)
-            | InputAction::Date(ref id)
-            | InputAction::Tags(ref id) => id.clone(),
-        };
-        let clock = &self.app.clock;
-        let date = |s: &str| match s {
-            "" | "none" => Ok(None),
-            s => parse_date(s, clock).map(Some).map_err(usage),
-        };
-        let r = match action {
-            InputAction::Create(_) | InputAction::Command => unreachable!(),
-            InputAction::Title(_) if text.is_empty() => Err(usage("the title cannot be empty")),
-            InputAction::Title(_) => self.mutate(&id, "title", |_, i| {
-                meta::retitle(i, text);
-                Ok(())
-            }),
-            InputAction::Schedule(_) => date(text).and_then(|d| {
-                self.mutate(&id, "scheduled", |_, i| {
-                    i.set_date("scheduled", d);
-                    Ok(())
-                })
-            }),
-            InputAction::Due(_) => date(text).and_then(|d| {
-                self.mutate(&id, "due", |_, i| {
-                    i.set_date("due", d);
-                    Ok(())
-                })
-            }),
-            InputAction::Date(_) => parse_date(text, clock).map_err(usage).and_then(|d| {
-                self.mutate(&id, "date", |_, i| {
-                    i.set_date("date", Some(d));
-                    Ok(())
-                })
-            }),
-            InputAction::Tags(_) => tags::parse_list(text).map_err(usage).and_then(|t| {
-                self.mutate(&id, "tag", |_, i| {
-                    i.set_tags(&t);
-                    Ok(())
-                })
-            }),
+            InputAction::Title(id) if text.is_empty() => {
+                (id, Err(usage("the title cannot be empty")))
+            }
+            InputAction::Title(id) => {
+                let r = self.mutate(&id, "title", |i| meta::retitle(i, text));
+                (id, r)
+            }
+            InputAction::Date(field, id) => {
+                let text = if text.is_empty() { "none" } else { text };
+                let r = field
+                    .parse(text, &self.app.clock)
+                    .and_then(|d| self.mutate(&id, field.key(), |i| i.set_date(field.key(), d)));
+                (id, r)
+            }
+            InputAction::Tags(id) => {
+                let r = tags::parse_list(text)
+                    .map_err(usage)
+                    .and_then(|t| self.mutate(&id, "tag", |i| i.set_tags(&t)));
+                (id, r)
+            }
         };
         self.after(r, &id);
     }
@@ -697,15 +646,10 @@ impl Ui {
     }
 
     /// Changes one item in a transaction and returns the output line of the change.
-    fn mutate(
-        &self,
-        id: &str,
-        verb: &str,
-        f: impl FnOnce(&App, &mut Item) -> Result<()>,
-    ) -> Result<String> {
+    fn mutate(&self, id: &str, verb: &str, f: impl FnOnce(&mut Item)) -> Result<String> {
         let mut tx = self.app.begin()?;
         let n = ids::resolve(&mut tx.store, id, true)?;
-        f(&self.app, &mut tx.store.items[n])?;
+        f(&mut tx.store.items[n]);
         tx.save(n, verb)?;
         let line = tx
             .changes
@@ -726,11 +670,7 @@ impl Ui {
                 .filter(|&n| tx.store.items[n].place == Place::Trash)
                 .collect(),
         };
-        for &n in &idx {
-            let item = &tx.store.items[n];
-            store::delete(item, &mut tx.changes)?;
-            tx.changes.shown.push(Change::new("deleted", item));
-        }
+        tx.delete(&idx)?;
         let msg = match tx.changes.shown.as_slice() {
             [] => "the trash is empty".to_string(),
             [c] => c.line(),
@@ -741,58 +681,32 @@ impl Ui {
     }
 
     fn toggle_status(&mut self, id: &str, status: Status) {
-        let today = self.app.clock.today;
-        let r = self
-            .selected()
-            .filter(|i| i.kind() == Kind::Todo)
-            .ok_or_else(|| usage("only todos have a status"))
-            .and_then(|i| {
+        let r = match self.selected() {
+            Some(i) if i.kind() == Kind::Todo => {
                 let target = if i.meta.current_status() == Some(status) {
                     Status::Open
                 } else {
                     status
                 };
-                let verb = match target {
-                    Status::Open => "reopen",
-                    s => s.as_str(),
-                };
-                self.mutate(id, verb, |app, i| {
-                    status::apply(app, i, target, today);
-                    Ok(())
+                let app = &self.app;
+                self.mutate(id, target.verb(), |i| {
+                    status::apply(app, i, target, app.clock.today)
                 })
-            });
+            }
+            _ => Err(usage("only todos have a status")),
+        };
         self.after(r, id);
     }
 
     fn bump_priority(&mut self, id: &str, by: i8) {
         let r = match self.selected() {
             Some(i) if i.kind() == Kind::Note => Err(usage("only todos have a priority")),
-            _ => self.mutate(id, "priority", |_, i| {
+            _ => self.mutate(id, "priority", |i| {
                 let p = (i.meta.priority.unwrap_or(0) as i8 + by).clamp(0, 3) as u8;
                 i.set_priority((p > 0).then_some(p));
-                Ok(())
             }),
         };
         self.after(r, id);
-    }
-
-    /// Creates an item. Returns the ID.
-    fn create(&self, kind: Kind, title: &str) -> Result<String> {
-        if title.is_empty() {
-            return Err(usage("the title cannot be empty"));
-        }
-        let c = CreateCmd {
-            title: vec![title.to_string()],
-            content: None,
-            tag: vec![],
-            template: None,
-            date: None,
-            scheduled: None,
-            due: None,
-            priority: None,
-            edit: false,
-        };
-        create::create(&self.app, kind, c)
     }
 
     /// Opens the item in the editor, with the terminal in its normal state.

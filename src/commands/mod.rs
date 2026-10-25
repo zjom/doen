@@ -14,9 +14,11 @@ use std::io::Read;
 
 use crate::error::{Result, usage};
 use crate::ids;
+use crate::item::Kind;
 use crate::store::Store;
 
-/// Resolves ID arguments. The argument `-` reads whitespace-separated IDs from stdin.
+/// Resolves every ID before any change. The argument `-` reads whitespace-separated IDs from
+/// stdin. Duplicate IDs resolve once.
 pub fn resolve_ids(store: &mut Store, args: &[String], trash: bool) -> Result<Vec<usize>> {
     let mut expanded = vec![];
     let mut stdin_read = false;
@@ -33,5 +35,26 @@ pub fn resolve_ids(store: &mut Store, args: &[String], trash: bool) -> Result<Ve
     if expanded.is_empty() {
         return Err(usage("no IDs given"));
     }
-    ids::resolve_all(store, &expanded, trash)
+    let mut out = vec![];
+    for a in &expanded {
+        let n = ids::resolve(store, a, trash)?;
+        if !out.contains(&n) {
+            out.push(n);
+        }
+    }
+    Ok(out)
+}
+
+pub fn require_todos(store: &Store, idx: &[usize], what: &str) -> Result<()> {
+    match idx
+        .iter()
+        .map(|&n| &store.items[n])
+        .find(|i| i.kind() == Kind::Note)
+    {
+        Some(i) => Err(usage(format!(
+            "{} is a note: only todos have {what}",
+            i.id()
+        ))),
+        None => Ok(()),
+    }
 }

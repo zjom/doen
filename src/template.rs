@@ -7,7 +7,7 @@ use crate::app::App;
 use crate::dates::{Clock, format_iso, parse_date, weekday_short};
 use crate::error::{Error, Result, general, usage};
 use crate::frontmatter::{Doc, MANAGED};
-use crate::item::{Kind, parse_priority};
+use crate::item::{Kind, TODO_ONLY, parse_priority};
 use crate::tags;
 
 pub struct Template {
@@ -16,7 +16,6 @@ pub struct Template {
     pub body: String,
 }
 
-/// The managed fields that a template can set.
 const MANAGED_IN_TEMPLATE: [&str; 4] = ["scheduled", "due", "priority", "tags"];
 
 /// The template directories, in order of precedence.
@@ -62,19 +61,11 @@ pub fn load(app: &App, kind: Kind, opt: Option<&str>) -> Result<Option<Template>
             path.display()
         )));
     }
-    if kind == Kind::Note && doc.get("scheduled").is_some() {
+    if kind == Kind::Note
+        && let Some(k) = TODO_ONLY.iter().find(|k| doc.get(k).is_some())
+    {
         return Err(usage(format!(
-            "template '{name}' sets 'scheduled', but a note has no scheduled date"
-        )));
-    }
-    if kind == Kind::Note && doc.get("due").is_some() {
-        return Err(usage(format!(
-            "template '{name}' sets 'due', but a note has no due date"
-        )));
-    }
-    if kind == Kind::Note && doc.get("priority").is_some() {
-        return Err(usage(format!(
-            "template '{name}' sets 'priority', but a note has no priority"
+            "template '{name}' sets '{k}', which a note cannot have"
         )));
     }
     Ok(Some(Template {

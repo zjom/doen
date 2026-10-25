@@ -17,8 +17,12 @@ use crate::store::Store;
 use args::{Cli, Command, GlobalArgs, IdsCmd, TOP_HELP, TagAction};
 use resolve::Resolved;
 
+pub fn try_parse<T: Parser>(argv: impl IntoIterator<Item = OsString>) -> clap::error::Result<T> {
+    T::try_parse_from(std::iter::once(OsString::from("doen")).chain(argv))
+}
+
 fn parse<T: Parser>(argv: Vec<OsString>) -> Result<T> {
-    T::try_parse_from(std::iter::once(OsString::from("doen")).chain(argv)).map_err(|e| {
+    try_parse(argv).map_err(|e| {
         let _ = e.print();
         Error::Silent(if e.use_stderr() { 2 } else { 0 })
     })
@@ -82,10 +86,9 @@ fn is_id(globals: &[OsString], word: &str) -> bool {
     if word.len() < 2 || !word.bytes().all(|b| b.is_ascii_alphanumeric()) {
         return false;
     }
-    let dir =
-        Globals::try_parse_from(std::iter::once(OsString::from("doen")).chain(globals.to_vec()))
-            .ok()
-            .and_then(|g| g.global.dir);
+    let dir = try_parse::<Globals>(globals.to_vec())
+        .ok()
+        .and_then(|g| g.global.dir);
     Store::open(&store_path(dir.as_deref()), &[], false)
         .is_ok_and(|mut s| ids::resolve(&mut s, word, true).is_ok())
 }
@@ -114,7 +117,7 @@ pub fn run(argv: Vec<OsString>) -> Result<()> {
         Command::Grep(c) => list::grep(&app()?, c),
         Command::Tags(c) => tags::run(&app()?, c),
         Command::Interactive => crate::ui::run(app()?),
-        Command::Edit(c) => edit::run(&app()?, c),
+        Command::Edit(c) => edit::edit_item(&app()?, &c.id, false),
         Command::Title(c) => meta::title(&app()?, c),
         Command::Schedule(c) => meta::date(&app()?, DateField::Scheduled, c),
         Command::Due(c) => meta::date(&app()?, DateField::Due, c),

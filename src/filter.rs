@@ -140,9 +140,8 @@ fn cmp_field(a: &Item, b: &Item, field: SortField, reverse: bool) -> Ordering {
     }
 }
 
-/// Sorts a group of items of one kind. Notes have no scheduled date, due date, closed date, status or
-/// priority and sort by
-/// date instead; by default, the newest notes come first.
+/// Sorts a group of items of one kind. Notes have no scheduled date, due date, closed date, status
+/// or priority and sort by date instead; by default, the newest notes come first.
 fn sort(items: &mut [&Item], field: Option<SortField>, reverse: bool) {
     let Some(kind) = items.first().map(|i| i.kind()) else {
         return;

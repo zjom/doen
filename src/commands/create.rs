@@ -29,14 +29,15 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
 /// Creates an item and returns its ID. Prints nothing; `c.edit` is ignored.
 pub fn create(app: &App, kind: Kind, c: CreateCmd) -> Result<String> {
     let title = c.title.join(" ").trim().to_string();
-    if kind == Kind::Note && c.scheduled.is_some() {
-        return Err(usage("-S applies only to todos"));
-    }
-    if kind == Kind::Note && c.due.is_some() {
-        return Err(usage("-d applies only to todos"));
-    }
-    if kind == Kind::Note && c.priority.is_some() {
-        return Err(usage("-p applies only to todos"));
+    let todo_only = [
+        (c.scheduled.is_some(), "-S"),
+        (c.due.is_some(), "-d"),
+        (c.priority.is_some(), "-p"),
+    ];
+    if kind == Kind::Note
+        && let Some((_, flag)) = todo_only.iter().find(|(set, _)| *set)
+    {
+        return Err(usage(format!("{flag} applies only to todos")));
     }
     let tmpl = template::load(app, kind, c.template.as_deref())?;
     let mut tag_list = app.cfg.default_tags.clone();
@@ -86,12 +87,10 @@ pub fn create(app: &App, kind: Kind, c: CreateCmd) -> Result<String> {
     doc.set("id", Value::Str(id.clone()), true);
     doc.set("kind", Value::Str(kind.as_str().into()), false);
     doc.set("created", Value::Str(now.to_rfc3339()), false);
-    doc.set("date", Value::Str(format_iso(date)), false);
-    if let Some(d) = scheduled {
-        doc.set("scheduled", Value::Str(format_iso(d)), false);
-    }
-    if let Some(d) = due {
-        doc.set("due", Value::Str(format_iso(d)), false);
+    for (key, d) in [("date", Some(date)), ("scheduled", scheduled), ("due", due)] {
+        if let Some(d) = d {
+            doc.set(key, Value::Str(format_iso(d)), false);
+        }
     }
     if let Some(p) = priority {
         doc.set("priority", Value::Str(p.to_string()), false);
@@ -130,26 +129,12 @@ pub fn create(app: &App, kind: Kind, c: CreateCmd) -> Result<String> {
     Ok(id)
 }
 
-/// Opens the editor on a new item that has no title yet.
 fn edit_new(app: &App, item: Item) -> Result<Item> {
-    // In the store root, where new items go, so that relative links resolve in the editor.
-    let tmp = tempfile::Builder::new()
-        .prefix(".doen-tmp-new-")
-        .suffix(".md")
-        .tempfile_in(&app.root)?;
-    std::fs::write(tmp.path(), item.render())?;
-    loop {
-        editor::open(app, tmp.path())?;
-        let text = std::fs::read_to_string(tmp.path())?;
-        match editor::validate(&item, &text) {
-            Ok(new) if !new.has_title() => {
-                return Err(general("the title is empty: no item created"));
-            }
-            Ok(mut new) => {
-                new.sync_checkbox();
-                return Ok(new);
-            }
-            Err(e) => editor::edit_again(&format!("invalid frontmatter: {e}"))?,
-        }
+    let tmp = editor::temp_file(&app.root, "new", &item.render())?;
+    let (_, mut new) = editor::edit_valid(app, tmp.path(), &item)?;
+    if !new.has_title() {
+        return Err(general("the title is empty: no item created"));
     }
+    new.sync_checkbox();
+    Ok(new)
 }

@@ -8,7 +8,7 @@ const ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 
 /// Generates a random ID that is not used in the store (root, archive and trash).
 pub fn generate(store: &Store) -> String {
-    let len = if store.file_count() > 50_000 { 5 } else { 4 };
+    let len = if store.index.len() > 50_000 { 5 } else { 4 };
     loop {
         let id: String = (0..len)
             .map(|_| ALPHABET[rand::random_range(0..ALPHABET.len())] as char)
@@ -96,16 +96,4 @@ fn pick(store: &Store, arg: &str, found: Vec<usize>) -> Result<usize> {
             )))
         }
     }
-}
-
-/// Resolves every ID before any change. Duplicate arguments resolve once.
-pub fn resolve_all(store: &mut Store, args: &[String], trash: bool) -> Result<Vec<usize>> {
-    let mut out = vec![];
-    for a in args {
-        let n = resolve(store, a, trash)?;
-        if !out.contains(&n) {
-            out.push(n);
-        }
-    }
-    Ok(out)
 }

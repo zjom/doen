@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 use crate::error::{Result, general, warn};
 use crate::item::{Item, Place};
 
+pub const TMP_PREFIX: &str = ".doen-tmp-";
+
 pub struct Store {
     pub root: PathBuf,
     pub items: Vec<Item>,
@@ -141,7 +143,7 @@ impl Store {
                 let name = e.file_name();
                 let name = name.to_str().unwrap_or("");
                 name.ends_with(".md")
-                    && !name.starts_with(".doen-tmp-")
+                    && !name.starts_with(TMP_PREFIX)
                     && match e.file_type() {
                         // Follows symlinks, without the cost of a `stat` for plain files.
                         Ok(t) if t.is_symlink() => e.path().is_file(),
@@ -203,11 +205,6 @@ impl Store {
                 self.load(&path, place, warn_invalid);
             }
         }
-    }
-
-    /// The number of files in the store, for the choice of the ID length.
-    pub fn file_count(&self) -> usize {
-        self.index.len()
     }
 
     /// Whether an item has the ID, by filename or, for the parsed items, by frontmatter.
@@ -294,7 +291,7 @@ pub fn delete(item: &Item, changes: &mut Changes) -> Result<()> {
 /// Writes through a temporary file in `root`, so that a reader never sees a partial file.
 fn atomic_write(root: &Path, target: &Path, content: &str) -> Result<()> {
     let mut tmp = tempfile::Builder::new()
-        .prefix(".doen-tmp-")
+        .prefix(TMP_PREFIX)
         .tempfile_in(root)?;
     tmp.write_all(content.as_bytes())?;
     tmp.as_file().sync_all()?;
@@ -352,7 +349,7 @@ mod tests {
         }
         let store = Store::open(dir.path(), &[], false).unwrap();
         assert!(store.items.is_empty() && store.invalid.is_empty());
-        assert_eq!(store.file_count(), 3);
+        assert_eq!(store.index.len(), 3);
         assert!(store.has_id("bbbb") && store.has_id("cccc") && !store.has_id("dddd"));
         let store = Store::open(dir.path(), &[Place::Root], false).unwrap();
         assert!(store.invalid.len() == 1 && store.has_id("aaaa"));

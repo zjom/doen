@@ -7,14 +7,13 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
     Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use super::complete::Menu;
 use super::keys::{ACTIONS, Action, Section};
 use super::{Focus, InputAction, Popup, Row, Ui};
-use crate::dates::display;
 use crate::item::{Item, Kind, Status};
-use crate::output::{is_overdue, summary};
+use crate::output::{hashtags, history, is_overdue, summary, truncate};
 
 /// Below this width, the preview is below the items.
 const PREVIEW_MIN_WIDTH: u16 = 90;
@@ -113,39 +112,10 @@ fn draw_items(f: &mut Frame, ui: &mut Ui, area: Rect) {
     f.render_stateful_widget(list, area, &mut ui.list_state);
 }
 
-/// Cuts `s` to at most `w` columns, ending it with `…` if it is cut.
-fn truncate(s: &str, w: usize) -> String {
-    if s.width() <= w {
-        return s.to_string();
-    }
-    let mut out = String::new();
-    let mut n = 0;
-    for c in s.chars() {
-        let cw = c.width().unwrap_or(0);
-        if n + cw + 1 > w {
-            break;
-        }
-        out.push(c);
-        n += cw;
-    }
-    if w > 0 {
-        out.push('…');
-    }
-    out
-}
-
 fn item_line<'a>(item: &Item, ui: &Ui, width: usize) -> Line<'a> {
     let app = &ui.app;
     let m = &item.meta;
-    let show = |d, overdue| {
-        display(
-            d,
-            &app.clock,
-            app.cfg.relative_days,
-            &app.cfg.date_format,
-            overdue,
-        )
-    };
+    let show = |d, overdue| app.show_date(d, overdue);
     let status = m.current_status();
     let closed = status.is_some_and(|s| s != Status::Open);
 
@@ -184,12 +154,7 @@ fn item_line<'a>(item: &Item, ui: &Ui, width: usize) -> Line<'a> {
         },
         Kind::Note => Some((show(m.date, false), Style::new().dim())),
     };
-    let tags = m
-        .tags
-        .iter()
-        .map(|t| format!("#{t}"))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let tags = hashtags(&m.tags);
 
     let left_w: usize = left.iter().map(Span::width).sum();
     let date_w = date.as_ref().map_or(0, |(d, _)| d.width() + 2);
@@ -233,14 +198,7 @@ fn draw_preview(f: &mut Frame, ui: &mut Ui, area: Rect, separator: Borders) {
         Line::from(summary(item, &ui.app)).fg(Color::Yellow),
     ];
     if item.kind() == Kind::Todo && !item.meta.status.is_empty() {
-        let history = item
-            .meta
-            .status
-            .iter()
-            .map(|(d, s)| format!("{} {}", s.as_str(), d.format(&ui.app.cfg.date_format)))
-            .collect::<Vec<_>>()
-            .join(" → ");
-        lines.push(Line::from(history).dim());
+        lines.push(Line::from(history(item, &ui.app.cfg.date_format)).dim());
     }
     let path = item.path.strip_prefix(&ui.app.root).unwrap_or(&item.path);
     lines.push(Line::from(path.display().to_string()).dim());
@@ -282,7 +240,7 @@ fn hints(ui: &Ui, actions: &[(Action, &str)]) -> String {
 
 /// The bottom line, as in vim: a prompt or a question on the left, else the last message.
 fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
-    match &ui.popup {
+    let editing = match &ui.popup {
         Some(Popup::Input {
             title,
             input,
@@ -293,31 +251,29 @@ fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
                 InputAction::Command => ":".to_string(),
                 _ => format!("{title}: "),
             };
-            let x = (prompt.width() as u16).saturating_add(input.cursor_x());
-            // Scrolls a long line so that the cursor stays in view.
-            let offset = (x + 1).saturating_sub(area.width);
-            if let Some(menu) = menu {
-                let word_x = prompt.width() + input.text()[..menu.start].width();
-                let word_x = (word_x as u16).saturating_sub(offset);
-                draw_menu(f, menu, area, word_x);
-            }
-            let line = Line::from(vec![
-                Span::styled(prompt, Style::new().fg(Color::Yellow)),
-                input.text().into(),
-            ]);
-            f.render_widget(Paragraph::new(line).scroll((0, offset)), area);
-            f.set_cursor_position((area.x + x - offset, area.y));
+            Some((prompt, input, menu.as_ref()))
         }
-        _ if ui.searching => {
-            let x = 1 + ui.search.cursor_x();
-            let offset = (x + 1).saturating_sub(area.width);
-            let line = Line::from(vec![
-                Span::styled("/", Style::new().fg(Color::Yellow)),
-                ui.search.text().into(),
-            ]);
-            f.render_widget(Paragraph::new(line).scroll((0, offset)), area);
-            f.set_cursor_position((area.x + x - offset, area.y));
+        _ if ui.searching => Some(("/".to_string(), &ui.search, None)),
+        _ => None,
+    };
+    if let Some((prompt, input, menu)) = editing {
+        let x = (prompt.width() as u16).saturating_add(input.cursor_x());
+        // Scrolls a long line so that the cursor stays in view.
+        let offset = (x + 1).saturating_sub(area.width);
+        if let Some(menu) = menu {
+            let word_x = prompt.width() + input.text()[..menu.start].width();
+            let word_x = (word_x as u16).saturating_sub(offset);
+            draw_menu(f, menu, area, word_x);
         }
+        let line = Line::from(vec![
+            Span::styled(prompt, Style::new().fg(Color::Yellow)),
+            input.text().into(),
+        ]);
+        f.render_widget(Paragraph::new(line).scroll((0, offset)), area);
+        f.set_cursor_position((area.x + x - offset, area.y));
+        return;
+    }
+    match &ui.popup {
         Some(Popup::Confirm { message, .. }) => {
             let line = Line::from(vec![
                 Span::styled(message.as_str(), Style::new().fg(Color::Yellow)),

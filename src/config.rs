@@ -87,7 +87,6 @@ pub fn xdg_config_dir() -> PathBuf {
     }
 }
 
-/// Expands a leading `~/` to `$HOME`.
 fn expand_home(s: &str) -> PathBuf {
     match s.strip_prefix("~/") {
         Some(rest) => home().join(rest),

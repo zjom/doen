@@ -183,7 +183,6 @@ pub enum Range {
         start: Option<NaiveDate>,
         end: Option<NaiveDate>,
     },
-    /// The field is not set.
     Unset,
 }
 
@@ -210,17 +209,11 @@ pub fn parse_range(s: &str, clock: &Clock) -> Result<Range, String> {
         if a.is_empty() && b.is_empty() {
             return Err(format!("invalid range: '{s}'"));
         }
-        let start = if a.is_empty() {
-            None
-        } else {
-            Some(parse_date(a, clock)?)
-        };
-        let end = if b.is_empty() {
-            None
-        } else {
-            Some(parse_date(b, clock)?)
-        };
-        Range::Days { start, end }
+        let bound = |s: &str| (!s.is_empty()).then(|| parse_date(s, clock)).transpose();
+        Range::Days {
+            start: bound(a)?,
+            end: bound(b)?,
+        }
     } else if s == "none" {
         Range::Unset
     } else if let Some(r) = parse_period(s, clock) {

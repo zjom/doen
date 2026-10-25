@@ -1,9 +1,11 @@
+use chrono::NaiveDate;
+
 use crate::app::App;
 use crate::cli::args::{DateCmd, PriorityCmd, TagArgs, TitleCmd};
-use crate::commands::resolve_ids;
-use crate::dates::parse_date;
+use crate::commands::{require_todos, resolve_ids};
+use crate::dates::{Clock, parse_date};
 use crate::error::{Result, usage, warn};
-use crate::item::{Item, Kind, parse_priority};
+use crate::item::{Item, Kind, Meta, parse_priority_or_none};
 use crate::tags;
 
 pub fn title(app: &App, c: TitleCmd) -> Result<()> {
@@ -45,47 +47,49 @@ pub enum DateField {
 }
 
 impl DateField {
-    fn key(self) -> &'static str {
+    pub fn key(self) -> &'static str {
         match self {
             DateField::Scheduled => "scheduled",
             DateField::Due => "due",
             DateField::Date => "date",
         }
     }
+
+    /// Only `date` is required; the todo-only fields can be cleared.
+    pub fn todo_only(self) -> bool {
+        self != DateField::Date
+    }
+
+    pub fn get(self, m: &Meta) -> Option<NaiveDate> {
+        match self {
+            DateField::Scheduled => m.scheduled,
+            DateField::Due => m.due,
+            DateField::Date => Some(m.date),
+        }
+    }
+
+    /// `none` clears a todo-only field.
+    pub fn parse(self, s: &str, clock: &Clock) -> Result<Option<NaiveDate>> {
+        if self.todo_only() && s == "none" {
+            return Ok(None);
+        }
+        parse_date(s, clock).map(Some).map_err(usage)
+    }
 }
 
 pub fn date(app: &App, field: DateField, c: DateCmd) -> Result<()> {
-    // Only `date` is required; the todo-only fields can be cleared.
-    let todo_only = field != DateField::Date;
-    let value = if todo_only && c.date == "none" {
-        None
-    } else {
-        Some(parse_date(&c.date, &app.clock).map_err(usage)?)
-    };
+    let value = field.parse(&c.date, &app.clock)?;
     let mut tx = app.begin()?;
     let idx = resolve_ids(&mut tx.store, &c.id, false)?;
-    if todo_only
-        && let Some(&n) = idx
-            .iter()
-            .find(|&&n| tx.store.items[n].kind() == Kind::Note)
-    {
-        return Err(usage(format!(
-            "{} is a note: only todos have a {} date",
-            tx.store.items[n].id(),
-            field.key()
-        )));
+    if field.todo_only() {
+        require_todos(&tx.store, &idx, &format!("a {} date", field.key()))?;
     }
     if field == DateField::Due && value.is_some_and(|d| d < app.clock.today) {
         warn("the due date is in the past");
     }
     for n in idx {
         let item = &mut tx.store.items[n];
-        let current = match field {
-            DateField::Scheduled => item.meta.scheduled,
-            DateField::Due => item.meta.due,
-            DateField::Date => Some(item.meta.date),
-        };
-        if current == value {
+        if field.get(&item.meta) == value {
             warn(format!(
                 "{}: {} is already {}",
                 item.id(),
@@ -101,24 +105,10 @@ pub fn date(app: &App, field: DateField, c: DateCmd) -> Result<()> {
 }
 
 pub fn priority(app: &App, c: PriorityCmd) -> Result<()> {
-    let value = match c.priority.as_str() {
-        "none" => None,
-        s => Some(
-            parse_priority(s)
-                .ok_or_else(|| usage(format!("invalid priority '{s}': use 1, 2, 3 or none")))?,
-        ),
-    };
+    let value = parse_priority_or_none(&c.priority).map_err(usage)?;
     let mut tx = app.begin()?;
     let idx = resolve_ids(&mut tx.store, &c.id, false)?;
-    if let Some(&n) = idx
-        .iter()
-        .find(|&&n| tx.store.items[n].kind() == Kind::Note)
-    {
-        return Err(usage(format!(
-            "{} is a note: only todos have a priority",
-            tx.store.items[n].id()
-        )));
-    }
+    require_todos(&tx.store, &idx, "a priority")?;
     for n in idx {
         let item = &mut tx.store.items[n];
         if item.meta.priority == value {

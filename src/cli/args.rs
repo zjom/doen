@@ -227,6 +227,12 @@ pub struct FormatArgs {
     /// Print only the IDs
     #[arg(long, conflicts_with_all = ["porcelain", "json"])]
     pub ids: bool,
+    #[command(flatten)]
+    pub machine: MachineArgs,
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct MachineArgs {
     /// Print a stable tab-separated format
     #[arg(long, conflicts_with = "json")]
     pub porcelain: bool,
@@ -239,9 +245,9 @@ impl FormatArgs {
     pub fn format(&self) -> Format {
         if self.ids {
             Format::Ids
-        } else if self.porcelain {
+        } else if self.machine.porcelain {
             Format::Porcelain
-        } else if self.json {
+        } else if self.machine.json {
             Format::Json
         } else {
             Format::Human
@@ -249,7 +255,7 @@ impl FormatArgs {
     }
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Default)]
 pub struct CreateCmd {
     /// The title words
     pub title: Vec<String>,
@@ -343,12 +349,8 @@ pub struct TagsCmd {
     /// Count items in the store root and in the archive
     #[arg(short = 'a', long)]
     pub all: bool,
-    /// Print a stable tab-separated format
-    #[arg(long, conflicts_with = "json")]
-    pub porcelain: bool,
-    /// Print JSON
-    #[arg(long)]
-    pub json: bool,
+    #[command(flatten)]
+    pub format: MachineArgs,
 }
 
 #[derive(Args, Debug)]

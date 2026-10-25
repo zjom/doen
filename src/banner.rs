@@ -63,18 +63,12 @@ fn paint_row(app: &App, row: &str) -> String {
     out
 }
 
-/// The width of the terminal, or 80.
-fn terminal_width() -> usize {
-    term::width().unwrap_or(80)
-}
-
-/// Prints a horizontal rule across the terminal.
 fn print_rule(app: &App, width: usize) {
     println!("{}", app.paint("2", &"─".repeat(width)));
 }
 
 pub fn print_header(app: &App) {
-    let width = terminal_width();
+    let width = term::width().unwrap_or(80);
     let rows = big(BANNER);
     let banner_w = rows.iter().map(|r| r.chars().count()).max().unwrap_or(0);
     let indent = " ".repeat(width.saturating_sub(banner_w) / 2);
@@ -104,7 +98,7 @@ const CHEATSHEET: [&str; 13] = [
 /// Prints the cheatsheet after a prompt icon, the commands separated by `·`. A line breaks only
 /// between two commands, and the next line lines up with the first command.
 pub fn print_footer(app: &App) {
-    let width = terminal_width();
+    let width = term::width().unwrap_or(80);
     println!();
     print_rule(app, width);
     // The line holds painted text, so `used` counts the visible width.

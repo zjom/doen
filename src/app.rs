@@ -2,12 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
+use chrono::NaiveDate;
+
 use crate::config::{ColorMode, Config, store_path};
-use crate::dates::Clock;
+use crate::dates::{self, Clock};
 use crate::error::{Error, Result};
 use crate::git;
 use crate::item::{Item, Place};
-use crate::store::{Change, Changes, Lock, Store, require_root};
+use crate::store::{self, Change, Changes, Lock, Store, require_root};
 use crate::term;
 
 pub struct App {
@@ -74,14 +76,24 @@ impl App {
         if self.yes {
             return Ok(());
         }
-        let answer = term::ask(&format!("{question} [y/N] ")).map_err(|_| {
+        let yes = term::confirm(question).map_err(|_| {
             Error::Declined("confirmation needed, but no terminal is available (use -y)".into())
         })?;
-        if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+        if yes {
             Ok(())
         } else {
             Err(Error::Declined("cancelled".into()))
         }
+    }
+
+    pub fn show_date(&self, d: NaiveDate, overdue: bool) -> String {
+        dates::display(
+            d,
+            &self.clock,
+            self.cfg.relative_days,
+            &self.cfg.date_format,
+            overdue,
+        )
     }
 
     pub fn paint(&self, code: &str, s: &str) -> String {
@@ -106,6 +118,15 @@ impl Tx {
         self.changes
             .shown
             .push(Change::new(verb, &self.store.items[n]));
+        Ok(())
+    }
+
+    pub fn delete(&mut self, idx: &[usize]) -> Result<()> {
+        for &n in idx {
+            let item = &self.store.items[n];
+            store::delete(item, &mut self.changes)?;
+            self.changes.shown.push(Change::new("deleted", item));
+        }
         Ok(())
     }
 
