@@ -11,7 +11,9 @@ use clap::error::ErrorKind;
 use crate::app::App;
 use crate::cli::args::{Cli, Command, CreateCmd, OutputArgs};
 use crate::cli::normalize;
+use crate::cli::resolve::{Resolved, resolve};
 use crate::commands::{create, list};
+use crate::dates::{Clock, parse_range};
 use crate::error::{Result, general, usage};
 use crate::filter::{Query, SortField, select};
 use crate::ids;
@@ -123,6 +125,64 @@ fn split(line: &str) -> std::result::Result<Vec<String>, &'static str> {
     Ok(words)
 }
 
+/// The `ls` options of a filter word: a date or range (`--date`) or `#tags` (`-t`).
+fn filter_word(w: &str, clock: &Clock) -> Option<[String; 2]> {
+    if let Some(tags) = w.strip_prefix('#') {
+        return (!tags.is_empty()).then(|| ["-t".into(), tags.into()]);
+    }
+    (w != "none" && parse_range(w, clock).is_ok()).then(|| ["--date".into(), w.into()])
+}
+
+fn is_kind(w: &str) -> bool {
+    matches!(w, "n" | "t" | "note" | "todo")
+}
+
+/// Rewrites a filter line as an `ls` command: a bare date or range filters by date, `#tags` by
+/// tags, and a last `n` or `t` lists that kind. Options, from the first word that starts with `-`,
+/// are kept as they are. Other lines are returned unchanged.
+fn expand_filters(words: Vec<String>, clock: &Clock) -> Vec<String> {
+    let n = words
+        .iter()
+        .position(|w| w.starts_with('-'))
+        .unwrap_or(words.len());
+    let (lead, options) = words.split_at(n);
+    let Some(first) = lead.first() else {
+        return words;
+    };
+    let resolved = resolve(first);
+    let (kind, filters) = if resolved == Resolved::Command("ls".into()) {
+        // `ls` takes the kind itself: only the filter words change.
+        let mut argv = vec![first.clone()];
+        for w in &lead[1..] {
+            match filter_word(w, clock) {
+                Some(f) => argv.extend(f),
+                None => argv.push(w.clone()),
+            }
+        }
+        argv.extend_from_slice(options);
+        return argv;
+    } else if lead.len() == 1 && is_kind(first) {
+        (Some(first), &lead[..0])
+    } else if resolved == Resolved::Unknown && filter_word(first, clock).is_some() {
+        match lead.split_last() {
+            Some((last, rest)) if is_kind(last) => (Some(last), rest),
+            _ => (None, lead),
+        }
+    } else {
+        return words;
+    };
+    let mut argv = vec!["ls".to_string()];
+    argv.extend(kind.cloned());
+    for w in filters {
+        match filter_word(w, clock) {
+            Some(f) => argv.extend(f),
+            None => return words,
+        }
+    }
+    argv.extend_from_slice(options);
+    argv
+}
+
 /// The first line of a clap error, without the `error: ` prefix.
 fn clap_message(e: &clap::Error) -> String {
     let text = e.render().to_string();
@@ -160,7 +220,7 @@ impl Ui {
     }
 
     fn try_command(&mut self, line: &str) -> Result<Option<String>> {
-        let words = split(line).map_err(usage)?;
+        let words = expand_filters(split(line).map_err(usage)?, &self.app.clock);
         if words.is_empty() {
             return Ok(None);
         }
@@ -353,5 +413,31 @@ mod tests {
         assert_eq!(s("n ''"), ["n", ""]);
         assert!(s("  ").is_empty());
         assert!(split("n 'open").is_err());
+    }
+
+    #[test]
+    fn filters() {
+        let clock = Clock::at(
+            chrono::DateTime::parse_from_rfc3339("2026-10-16T12:00:00+11:00").unwrap(),
+            chrono::Weekday::Mon,
+        );
+        let x = |l| expand_filters(split(l).unwrap(), &clock).join(" ");
+        assert_eq!(x("26-10-22"), "ls --date 26-10-22");
+        assert_eq!(x("yesterday"), "ls --date yesterday");
+        assert_eq!(x("#life,work"), "ls -t life,work");
+        assert_eq!(x("#life #work"), "ls -t life -t work");
+        assert_eq!(x("n"), "ls n");
+        assert_eq!(x("t -a"), "ls t -a");
+        assert_eq!(x("tomorrow #life n"), "ls n --date tomorrow -t life");
+        assert_eq!(x("W #work -a"), "ls --date W -t work -a");
+        assert_eq!(x("ls todo #work 1w"), "ls todo -t work --date 1w");
+        // Not filter lines.
+        assert_eq!(x("n tomorrow #life"), "n tomorrow #life");
+        assert_eq!(x("n buy milk"), "n buy milk");
+        assert_eq!(x("tomorrow n #life"), "tomorrow n #life");
+        assert_eq!(x("today"), "today");
+        assert_eq!(x("none"), "none");
+        assert_eq!(x("#"), "#");
+        assert_eq!(x("due fri"), "due fri");
     }
 }

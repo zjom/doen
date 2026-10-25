@@ -314,7 +314,8 @@ If the new value of a field is the same as the current value, doen does not repo
 - `/` filters the list by a case-insensitive substring of the title and the body.
 - `:` runs a doen command, with the same words, options and prefixes as on the command line. Quotes and backslashes work as in a shell. If the IDs are missing, the command acts on the selected item (`:due fri`, `:tag add work`, `:done --on yesterday`).
   - The list commands (`ls`, `today`, `grep`, `trash`, `show`) replace the item list with their result, as with the default command: `:--date yesterday` lists like `doen ls --date yesterday`. `--sort`, `-r` and `-n` apply; the output formats do not. The title of the list is the command. `back`, or a view in the views panel, returns to the views.
-  - `note` and `todo` create the item with the selected tag, as `n` and `t` do. The title cannot be empty, and `-c -` is not available. `-e` opens the new item in the editor.
+  - A line of filters lists like `ls`: a bare date or range filters by date (`:yesterday`, `:26-10-22`, `:W` is `--date`), a word that starts with `#` filters by tags (`:#life,work` is `-t life,work`), and `n` or `t` as the last word selects notes or todos. The filters compose, and options can follow: `:tomorrow #life n`, `:W #work -a`.
+  - `note` and `todo` create the item with the selected tag, as `n` and `t` do. Without a title, `n` and `t` list notes and todos. `-c -` is not available. `-e` opens the new item in the editor.
   - `edit` opens the editor, `tags` focuses the tags panel and `help` shows the keybindings.
   - The other commands run doen on the same store, and the status bar shows their output. `rm` and `trash --empty` ask for confirmation first, unless you give `-y`.
   - `ui`, `init`, `completion` and `--dir` are not available.
