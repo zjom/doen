@@ -21,7 +21,7 @@ _doen() {
     local -a cmds
     cmds=(
         'note:create a note' 'todo:create a todo' 'ls:list items' 'today:agenda'
-        'show:print items' 'grep:full-text search' 'tags:list tags' 'ui:interactive mode'
+        'show:print items' 'grep:full-text search' 'tags:list tags' 'interactive:interactive mode'
         'edit:open in the editor' 'title:change the title' 'schedule:set the scheduled date' 'due:set the due date'
         'date:set the date' 'priority:set the priority' 'tag:add or remove tags' 'done:mark done' 'drop:mark not doing'
         'reopen:back to open' 'archive:archive' 'unarchive:unarchive' 'rm:move to the trash'

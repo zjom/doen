@@ -44,7 +44,7 @@ Each command has one full name and a maximum of one short alias. doen resolves a
 
 Because of this order, `doen t` always resolves to `todo`. `doen tag` always resolves to `tag`, never to `tags`.
 
-- doen never matches the `rm` command by prefix. You must type `rm` in full.
+- doen never matches the `rm` and `init` commands by prefix. You must type them in full.
 - If a prefix matches more than one command (`doen re`, `doen to`), doen shows an error that lists the candidate commands.
 - doen never matches subcommands and arguments (`tag add`, `completion bash`) by prefix.
 - Prefixes are for interactive use. A command that is added in a later version can make a prefix ambiguous. We recommend that scripts use full names.
@@ -64,7 +64,7 @@ doen today                                   agenda: overdue, due today, schedul
 doen show|s <id>...                          print to stdout
 doen grep <pattern> [filters]                full-text search (ls -q with its own exit code)
 doen tags [-a]                               list tags with counts
-doen ui                                      interactive mode
+doen interactive|i                           interactive mode
 
 # edit
 doen edit|e <id>                             open in the editor
@@ -307,7 +307,7 @@ If the new value of a field is the same as the current value, doen does not repo
 
 ### Interactive mode
 
-`doen ui` opens a full-screen interface in the style of lazygit. The command requires a terminal.
+`doen interactive` opens a full-screen interface in the style of lazygit. The command requires a terminal.
 
 - The left panel lists the items. By default, it lists the open todos in the store root. A command (see below) replaces this list with other items. The right panel shows the selected item: the title, the metadata summary of `doen show`, the status history, the path and the body. If the terminal is less than 90 columns wide, the preview is below the list, and if it is also less than 16 rows high, doen does not show the preview. `toggle_preview` hides and shows the preview; focusing the preview shows it.
 - `/` filters the list by a case-insensitive substring of the title and the body.
@@ -318,7 +318,7 @@ If the new value of a field is the same as the current value, doen does not repo
   - `note` and `todo` create the item, as `n` and `t` do. Without a title, `n` and `t` list notes and todos. `-c -` is not available. `-e` opens the new item in the editor.
   - `edit` opens the editor and `help` shows the keybindings.
   - The other commands run doen on the same store, and the status bar shows their output. `rm` and `trash --empty` ask for confirmation first, unless you give `-y`.
-  - `ui`, `init`, `tags`, `completion` and `--dir` are not available.
+  - `interactive`, `init`, `tags`, `completion` and `--dir` are not available.
   - A menu above the command line shows the completions of the word that you type: commands, options, option values, IDs (with the titles; a word also matches the titles), tags and dates. `tab` puts the next completion in the line and `shift-tab` the previous one. If only one completion matches, `tab` accepts it and adds a space.
 - Every key is configurable with the `ui_keys` config key (see Config). The defaults are lazygit-like: `j`/`k` move, `space` toggles done, `e` opens the editor (as `doen edit`), `d` moves to the trash, `?` lists the keys with their action names. `ctrl-c` always quits and cannot be changed.
 - Text fields (prompts and the search) take every plain character as text: while you type, only the `submit` and `back` keys and the movement keys with `ctrl-`, `alt-` or a key name run an action. The editing keys of text fields (`ctrl-a`, `ctrl-e`, `ctrl-u`, `ctrl-k`, `ctrl-w`, arrows, `home`, `end`, `backspace`, `delete`) are fixed.

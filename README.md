@@ -56,7 +56,7 @@ Read:
   show|s <id>...             print items
   grep <pattern> [filters]   full-text search
   tags [-a]                  list tags with counts
-  ui                         interactive mode
+  interactive|i              interactive mode
 
 Edit:
   edit|e <id>                open in the editor

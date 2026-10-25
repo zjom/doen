@@ -22,12 +22,12 @@ pub fn resolve(word: &str) -> Resolved {
     if let Some(c) = found {
         return Resolved::Command(c.get_name().into());
     }
-    // `rm` never matches by prefix.
+    // `rm` and `init` never match by prefix.
     let matches: Vec<String> = commands
         .iter()
         .filter(|c| !c.is_hide_set())
         .map(|c| c.get_name())
-        .filter(|n| *n != "rm" && !word.is_empty() && n.starts_with(word))
+        .filter(|n| !["rm", "init"].contains(n) && !word.is_empty() && n.starts_with(word))
         .map(String::from)
         .collect();
     match matches.as_slice() {
@@ -53,6 +53,9 @@ mod tests {
         assert_eq!(resolve("re"), amb(&["reopen", "restore"]));
         assert_eq!(resolve("to"), amb(&["todo", "today"]));
         assert_eq!(resolve("rm"), cmd("rm"));
+        assert_eq!(resolve("i"), cmd("interactive"));
+        assert_eq!(resolve("in"), cmd("interactive"));
+        assert_eq!(resolve("init"), cmd("init"));
         assert_eq!(resolve("__complete"), cmd("__complete"));
         assert_eq!(resolve("_"), Resolved::Unknown);
         assert_eq!(resolve("xyz"), Resolved::Unknown);

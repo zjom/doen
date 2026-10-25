@@ -15,7 +15,7 @@ use super::command::split;
 use super::input::Input;
 
 /// The commands that the ui does not take.
-const UNAVAILABLE: &[&str] = &["ui", "init", "tags", "completion"];
+const UNAVAILABLE: &[&str] = &["interactive", "init", "tags", "completion"];
 /// The options that the ui does not take or that do nothing in it.
 const HIDDEN_OPTIONS: &[&str] = &["dir", "help", "version"];
 const RANGES: &str = "W M Y LW LM LY";

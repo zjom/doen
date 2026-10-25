@@ -313,7 +313,7 @@ impl Ui {
                 };
                 self.confirm(question, ConfirmAction::Command(full));
             }
-            Command::Ui
+            Command::Interactive
             | Command::Init
             | Command::Tags(_)
             | Command::Completion(_)

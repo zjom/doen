@@ -1,4 +1,4 @@
-//! `doen ui`: an interactive mode in the style of lazygit. The item list is on the left and the
+//! `doen interactive`: an interactive mode in the style of lazygit. The item list is on the left and the
 //! preview of the selected item is on the right, or below in a narrow terminal.
 
 mod command;
