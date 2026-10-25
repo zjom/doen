@@ -236,7 +236,8 @@ impl Store {
             || self.items.iter().any(|i| i.id() == id)
     }
 
-    /// Writes an item atomically and moves the file to match the frontmatter.
+    /// Writes an item atomically and moves the file to match the frontmatter. A move writes the
+    /// file in place, then renames it: after a crash, the file is in one place only.
     pub fn write(&mut self, n: usize, changes: &mut Changes) -> Result<()> {
         let item = &mut self.items[n];
         let place = item.meta.expected_place();
@@ -253,12 +254,22 @@ impl Store {
                 target.display()
             )));
         }
-        atomic_write(&self.root, &target, &item.render())?;
+        let text = item.render();
+        if target != item.path && item.path.exists() {
+            atomic_write(&self.root, &item.path, &text)?;
+            match fs::rename(&item.path, &target) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+                    atomic_write(&self.root, &target, &text)?;
+                    fs::remove_file(&item.path)?;
+                }
+                Err(e) => return Err(general(format!("{}: {e}", target.display()))),
+            }
+        } else {
+            atomic_write(&self.root, &target, &text)?;
+        }
         changes.touch(&target);
         if target != item.path {
-            if item.path.exists() {
-                fs::remove_file(&item.path)?;
-            }
             changes.touch(&item.path);
         }
         item.path = target;
@@ -376,6 +387,44 @@ mod tests {
         assert!(store.has_id("bbbb") && store.has_id("cccc") && !store.has_id("dddd"));
         let store = Store::open(dir.path(), &[Place::Root], false).unwrap();
         assert!(store.invalid.len() == 1 && store.has_id("aaaa"));
+    }
+
+    #[test]
+    fn move_on_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = crate::testing::app(dir.path());
+        let id = crate::testing::create(&app, crate::item::Kind::Todo, "x");
+        let mut store = Store::open(dir.path(), &[Place::Root], false).unwrap();
+        let old = store.items[0].path.clone();
+        store.items[0].archive(app.clock.today);
+        let mut changes = super::Changes::default();
+        store.write(0, &mut changes).unwrap();
+        let new = &store.items[0].path;
+        assert_eq!(
+            new,
+            &dir.path().join(".archive").join(old.file_name().unwrap())
+        );
+        assert!(!old.exists());
+        assert!(
+            std::fs::read_to_string(new)
+                .unwrap()
+                .contains("archived: 2026-10-16")
+        );
+        let files = |d: &str| {
+            std::fs::read_dir(dir.path().join(d))
+                .unwrap()
+                .filter(|e| {
+                    e.as_ref()
+                        .unwrap()
+                        .path()
+                        .extension()
+                        .is_some_and(|x| x == "md")
+                })
+                .count()
+        };
+        assert_eq!((files(""), files(".archive")), (0, 1));
+        assert_eq!(changes.paths, [new.clone(), old]);
+        assert_eq!(store.items[0].id(), id);
     }
 
     #[test]
