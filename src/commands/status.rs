@@ -4,7 +4,7 @@ use crate::app::App;
 use crate::cli::args::StatusCmd;
 use crate::commands::{only_todos, require_todos, resolve_ids};
 use crate::dates::parse_date;
-use crate::error::{Result, usage, warn};
+use crate::error::{Result, usage};
 use crate::item::{Item, NotATodo, Status};
 
 pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
@@ -15,32 +15,33 @@ pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
     if on > app.clock.today {
         return Err(usage("the date of a status change cannot be in the future"));
     }
-    let mut tx = app.begin()?;
-    let idx = resolve_ids(&mut tx.store, &c.id, false)?;
-    require_todos(&tx.store, &idx, "a status")?;
-    for &n in &idx {
-        let item = &tx.store.items[n];
-        if item.meta.current_status() != Some(status)
-            && let Some((last, _)) = item.meta.status.last()
-            && on < *last
-        {
-            return Err(usage(format!(
-                "{}: the date {on} is before the previous status change ({last})",
-                item.id()
-            )));
+    app.run_tx(&[], |tx| {
+        let idx = resolve_ids(&mut tx.store, &c.id, false)?;
+        require_todos(&tx.store, &idx, "a status")?;
+        for &n in &idx {
+            let item = &tx.store.items[n];
+            if item.meta.current_status() != Some(status)
+                && let Some((last, _)) = item.meta.status.last()
+                && on < *last
+            {
+                return Err(usage(format!(
+                    "{}: the date {on} is before the previous status change ({last})",
+                    item.id()
+                )));
+            }
         }
-    }
-    for n in idx {
-        let item = &tx.store.items[n];
-        if item.meta.current_status() == Some(status) {
-            warn(format!("{} is already {}", item.id(), status.as_str()));
-            continue;
+        for n in idx {
+            let item = &mut tx.store.items[n];
+            if item.meta.current_status() == Some(status) {
+                tx.changes
+                    .warn(format!("{} is already {}", item.id(), status.as_str()));
+                continue;
+            }
+            apply(app, item, status, on).map_err(|_| only_todos(item.id(), "a status"))?;
+            tx.save(n, status.verb())?;
         }
-        apply(app, &mut tx.store.items[n], status, on)
-            .map_err(|_| only_todos(&tx.store.items[n].meta.id, "a status"))?;
-        tx.save(n, status.verb())?;
-    }
-    tx.finish(app)
+        Ok(())
+    })
 }
 
 /// Adds a status entry and archives or unarchives the todo.

@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::error::warn;
 use crate::store::Changes;
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -25,10 +24,10 @@ fn relative(top: &Path, p: &Path) -> Option<String> {
     Some(full.strip_prefix(top).ok()?.to_string_lossy().into_owned())
 }
 
-/// Commits the changed paths. A failure is a warning only.
-pub fn commit(root: &Path, changes: &Changes) {
+/// Commits the changed paths. Returns the warning of a failure, which does not fail the change.
+pub fn commit(root: &Path, changes: &Changes) -> Option<String> {
     if changes.paths.is_empty() {
-        return;
+        return None;
     }
     let mut lines: Vec<String> = changes
         .quiet
@@ -39,9 +38,9 @@ pub fn commit(root: &Path, changes: &Changes) {
     if lines.is_empty() {
         lines.push("doen: update".into());
     }
-    if let Err(e) = try_commit(root, &lines.join("\n"), &changes.paths) {
-        warn(format!("no Git commit: {e}"));
-    }
+    try_commit(root, &lines.join("\n"), &changes.paths)
+        .err()
+        .map(|e| format!("no Git commit: {e}"))
 }
 
 fn try_commit(root: &Path, message: &str, paths: &[PathBuf]) -> Result<(), String> {

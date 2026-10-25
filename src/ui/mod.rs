@@ -41,6 +41,11 @@ fn todos<'a>(items: Vec<&'a Item>, app: &App) -> Vec<(&'static str, Vec<&'a Item
     vec![("TODOS", select(todos, app.cfg.default_sort, false).0)]
 }
 
+/// The message of the status bar: the lines joined with `; `.
+fn message(lines: impl IntoIterator<Item = String>) -> String {
+    lines.into_iter().collect::<Vec<_>>().join("; ")
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Focus {
     Items,
@@ -681,14 +686,9 @@ impl Ui {
         let n = ids::resolve(&mut tx.store, id, true)?;
         f(&mut tx.store.items[n])?;
         tx.save(n, verb)?;
-        let line = tx
-            .changes
-            .shown
-            .last()
-            .map(Change::line)
-            .unwrap_or_default();
-        tx.commit(&self.app);
-        Ok(line)
+        let changes = tx.close(&self.app);
+        let line = changes.shown.last().map(Change::line);
+        Ok(message(line.into_iter().chain(changes.notices)))
     }
 
     /// Deletes the item `id` permanently, or with `None`, every item in the trash.
@@ -701,13 +701,13 @@ impl Ui {
                 .collect(),
         };
         tx.delete(&idx)?;
-        let msg = match tx.changes.shown.as_slice() {
+        let changes = tx.close(&self.app);
+        let msg = match changes.shown.as_slice() {
             [] => "the trash is empty".to_string(),
             [c] => c.line(),
             all => format!("deleted {} items", all.len()),
         };
-        tx.commit(&self.app);
-        Ok(msg)
+        Ok(message(std::iter::once(msg).chain(changes.notices)))
     }
 
     fn toggle_status(&mut self, id: &str, status: Status) {

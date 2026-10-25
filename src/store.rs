@@ -48,9 +48,19 @@ pub struct Changes {
     /// Committed only.
     pub quiet: Vec<Change>,
     pub paths: Vec<PathBuf>,
+    /// Messages for stderr, without the `doen: ` prefix.
+    pub notices: Vec<String>,
 }
 
 impl Changes {
+    pub fn notice(&mut self, msg: impl Into<String>) {
+        self.notices.push(msg.into());
+    }
+
+    pub fn warn(&mut self, msg: impl std::fmt::Display) {
+        self.notices.push(format!("warning: {msg}"));
+    }
+
     pub fn touch(&mut self, p: &Path) {
         if !self.paths.iter().any(|x| x == p) {
             self.paths.push(p.to_path_buf());

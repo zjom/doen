@@ -8,7 +8,7 @@ use crate::config::{ColorMode, Config, store_path};
 use crate::dates::{self, Clock};
 use crate::error::{Error, Result};
 use crate::git;
-use crate::item::{Item, Place};
+use crate::item::Place;
 use crate::store::{self, Change, Changes, Lock, Store, require_root};
 use crate::term;
 
@@ -68,10 +68,27 @@ impl App {
         })
     }
 
+    /// Runs a mutating command in a transaction. Prints the notices on stderr, whether `f`
+    /// fails or not. If `f` succeeds, prints the output lines on stdout and makes the Git commit.
+    pub fn run_tx<T>(&self, places: &[Place], f: impl FnOnce(&mut Tx) -> Result<T>) -> Result<T> {
+        let mut tx = self.begin_with(places)?;
+        let r = f(&mut tx);
+        print_notices(&mut tx.changes.notices);
+        let v = r?;
+        let mut changes = tx.close(self);
+        for c in &changes.shown {
+            println!("{}", c.line());
+        }
+        print_notices(&mut changes.notices);
+        Ok(v)
+    }
+
     /// Lists the items on stderr and asks for confirmation on the terminal. `-y` skips the prompt.
-    pub fn confirm(&self, items: &[&Item], question: &str) -> Result<()> {
-        for i in items {
-            eprintln!("  {}", i.label());
+    /// The notices so far are printed first.
+    pub fn confirm(&self, tx: &mut Tx, idx: &[usize], question: &str) -> Result<()> {
+        print_notices(&mut tx.changes.notices);
+        for &n in idx {
+            eprintln!("  {}", tx.store.items[n].label());
         }
         if self.yes {
             return Ok(());
@@ -105,6 +122,12 @@ impl App {
     }
 }
 
+fn print_notices(notices: &mut Vec<String>) {
+    for m in notices.drain(..) {
+        eprintln!("doen: {m}");
+    }
+}
+
 pub struct Tx {
     pub store: Store,
     pub changes: Changes,
@@ -130,19 +153,53 @@ impl Tx {
         Ok(())
     }
 
-    /// Prints the output lines and makes the Git commit.
+    /// Prints the output lines and the notices, and makes the Git commit.
     pub fn finish(self, app: &App) -> Result<()> {
-        for c in &self.changes.shown {
+        let mut changes = self.close(app);
+        for c in &changes.shown {
             println!("{}", c.line());
         }
-        self.commit(app);
+        print_notices(&mut changes.notices);
         Ok(())
     }
 
-    /// Makes the Git commit without printing anything.
-    pub fn commit(self, app: &App) {
-        if app.cfg.git_autocommit {
-            git::commit(&app.root, &self.changes);
+    /// Makes the Git commit and returns the changes, with a failure of the commit as a notice.
+    /// Prints nothing.
+    pub fn close(mut self, app: &App) -> Changes {
+        if app.cfg.git_autocommit
+            && let Some(w) = git::commit(&app.root, &self.changes)
+        {
+            self.changes.warn(w);
         }
+        self.changes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commit_failure_is_a_notice() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = App {
+            root: dir.path().into(),
+            cfg: Config {
+                git_autocommit: true,
+                ..Config::default()
+            },
+            clock: Clock::at(chrono::Local::now().fixed_offset(), chrono::Weekday::Mon),
+            yes: false,
+            color: false,
+        };
+        let mut tx = app.begin().unwrap();
+        let p = dir.path().join("x.md");
+        std::fs::write(&p, "x").unwrap();
+        tx.changes.touch(&p);
+        let changes = tx.close(&app);
+        assert_eq!(
+            changes.notices,
+            ["warning: no Git commit: the store is not in a Git work tree"]
+        );
     }
 }
