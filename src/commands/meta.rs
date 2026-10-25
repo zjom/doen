@@ -118,3 +118,21 @@ pub fn tag(tx: &mut Tx, add: bool, list: &[String], idx: &[usize]) -> Result<()>
     }
     Ok(())
 }
+
+/// Replaces the tags of the item. The verb is `untag` if tags were only removed.
+pub fn set_tags(tx: &mut Tx, n: usize, list: &[String]) -> Result<()> {
+    let item = &mut tx.store.items[n];
+    let old = &item.meta.tags;
+    if old == list {
+        let msg = format!("{}: the item already has these tags", item.id());
+        tx.changes.warn(msg);
+        return Ok(());
+    }
+    let verb = if list.iter().all(|t| old.contains(t)) {
+        "untag"
+    } else {
+        "tag"
+    };
+    item.set_tags(list);
+    tx.save(n, verb)
+}

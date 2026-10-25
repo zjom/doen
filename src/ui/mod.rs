@@ -18,15 +18,16 @@ use ratatui::crossterm::terminal::{
 };
 use ratatui::widgets::ListState;
 
-use crate::app::App;
+use crate::app::{App, Tx};
 use crate::cli::args::CreateCmd;
-use crate::commands::{edit, meta, only_todos, status};
+use crate::commands::lifecycle::{self, Lifecycle};
+use crate::commands::{edit, meta, status};
 use crate::dates::format_iso;
 use crate::error::{Error, Result, general, usage};
 use crate::filter::select;
 use crate::ids;
 use crate::item::{DateField, Item, Kind, Place, Status};
-use crate::store::{Change, Store};
+use crate::store::{Change, Changes, Store};
 use crate::tags;
 use crate::term;
 use complete::Menu;
@@ -44,6 +45,26 @@ fn todos<'a>(items: Vec<&'a Item>, app: &App) -> Vec<(&'static str, Vec<&'a Item
 /// The message of the status bar: the lines joined with `; `.
 fn message(lines: impl IntoIterator<Item = String>) -> String {
     lines.into_iter().collect::<Vec<_>>().join("; ")
+}
+
+/// The message of a change: the first output line, the notices, and the number of the other
+/// output lines.
+fn summary(changes: &Changes) -> String {
+    let first = changes.shown.first().map(Change::line);
+    let mut msg = message(first.into_iter().chain(changes.notices.iter().cloned()));
+    if changes.shown.len() > 1 {
+        msg.push_str(&format!(" (+{} more)", changes.shown.len() - 1));
+    }
+    msg
+}
+
+/// The error, followed by the notices of its transaction.
+fn with_notices(e: Error, notices: Vec<String>) -> Error {
+    if notices.is_empty() {
+        return e;
+    }
+    let msg = Some(e.to_string()).filter(|m| !m.is_empty());
+    general(message(msg.into_iter().chain(notices)))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -112,7 +133,7 @@ pub struct Ui {
     pub popup: Option<Popup>,
     /// A message for the status bar, and whether it is an error.
     pub message: Option<(String, bool)>,
-    /// Set when a command may have written to stderr, which ratatui does not know about.
+    /// Set after the editor, which ratatui does not know about.
     pub redraw: bool,
     quit: bool,
 }
@@ -442,6 +463,7 @@ impl Ui {
         let item = self.selected()?;
         let (id, title) = (item.id().to_string(), item.title().to_string());
         let trashed = item.place == Place::Trash;
+        let today = self.app.clock.today;
         let action = keys::ACTIONS
             .iter()
             .map(|s| s.action)
@@ -457,9 +479,8 @@ impl Ui {
                 ConfirmAction::Trash(id),
             ),
             Action::Restore if trashed => {
-                let r = self.mutate(&id, "restore", |i| {
-                    i.restore();
-                    Ok(())
+                let r = self.run(&id, |tx, n| {
+                    lifecycle::apply(tx, Lifecycle::Restore, &[n], today)
                 });
                 self.after(r, &id);
             }
@@ -476,16 +497,12 @@ impl Ui {
             Action::ToggleDone => self.toggle_status(&id, Status::Done),
             Action::ToggleDrop => self.toggle_status(&id, Status::Drop),
             Action::Archive => {
-                let today = self.app.clock.today;
-                let archived = self.selected()?.meta.archived.is_some();
-                let verb = if archived { "unarchive" } else { "archive" };
-                let r = self.mutate(&id, verb, |i| {
-                    if archived {
-                        i.unarchive();
-                    } else {
-                        i.archive(today);
-                    }
-                    Ok(())
+                let r = self.run(&id, |tx, n| {
+                    let op = match tx.store.items[n].meta.archived {
+                        Some(_) => Lifecycle::Unarchive,
+                        None => Lifecycle::Archive,
+                    };
+                    lifecycle::apply(tx, op, &[n], today)
                 });
                 self.after(r, &id);
             }
@@ -604,18 +621,17 @@ impl Ui {
         let today = self.app.clock.today;
         match action {
             ConfirmAction::Trash(id) => {
-                let r = self.mutate(&id, "rm", |i| {
-                    i.trash(today);
-                    Ok(())
+                let r = self.run(&id, |tx, n| {
+                    lifecycle::apply(tx, Lifecycle::Trash, &[n], today)
                 });
                 self.after(r, &id);
             }
             ConfirmAction::Delete(id) => {
-                let r = self.delete(Some(&id));
+                let r = self.run(&id, |tx, n| lifecycle::delete(tx, &[n]));
                 self.after(r, &id);
             }
             ConfirmAction::EmptyTrash => {
-                let r = self.delete(None);
+                let r = self.transact(lifecycle::empty_trash);
                 self.after(r, "");
             }
             ConfirmAction::Command(argv) => self.run_doen(argv),
@@ -639,29 +655,21 @@ impl Ui {
                 (id, Err(usage("the title cannot be empty")))
             }
             InputAction::Title(id) => {
-                let r = self.mutate(&id, "title", |i| {
-                    meta::retitle(i, text);
-                    Ok(())
-                });
+                let r = self.run(&id, |tx, n| meta::set_title(tx, n, text));
                 (id, r)
             }
             InputAction::Date(field, id) => {
                 let text = if text.is_empty() { "none" } else { text };
+                let today = self.app.clock.today;
                 let r = field.parse(text, &self.app.clock).and_then(|d| {
-                    self.mutate(&id, field.key(), |i| {
-                        let what = format!("a {} date", field.key());
-                        i.set_date(field, d).map_err(|_| only_todos(i.id(), &what))
-                    })
+                    self.run(&id, |tx, n| meta::set_date(tx, field, d, text, &[n], today))
                 });
                 (id, r)
             }
             InputAction::Tags(id) => {
-                let r = tags::parse_list(text).map_err(usage).and_then(|t| {
-                    self.mutate(&id, "tag", |i| {
-                        i.set_tags(&t);
-                        Ok(())
-                    })
-                });
+                let r = tags::parse_list(text)
+                    .map_err(usage)
+                    .and_then(|t| self.run(&id, |tx, n| meta::set_tags(tx, n, &t)));
                 (id, r)
             }
         };
@@ -670,74 +678,48 @@ impl Ui {
 
     /// Reports the result of an action and reloads the store, keeping the item `id` selected.
     fn after(&mut self, r: Result<String>, id: &str) {
-        self.redraw = true;
         self.reload((!id.is_empty()).then(|| id.to_string()));
         self.report(r);
     }
 
-    /// Changes one item in a transaction and returns the output line of the change.
-    fn mutate(
-        &self,
-        id: &str,
-        verb: &str,
-        f: impl FnOnce(&mut Item) -> Result<()>,
-    ) -> Result<String> {
+    /// Runs a change in a transaction. Returns the message of the change, or the error with the
+    /// notices.
+    fn transact(&self, f: impl FnOnce(&mut Tx) -> Result<()>) -> Result<String> {
         let mut tx = self.app.begin()?;
-        let n = ids::resolve(&mut tx.store, id, true)?;
-        f(&mut tx.store.items[n])?;
-        tx.save(n, verb)?;
+        let r = f(&mut tx);
         let changes = tx.close(&self.app);
-        let line = changes.shown.last().map(Change::line);
-        Ok(message(line.into_iter().chain(changes.notices)))
+        match r {
+            Ok(()) => Ok(summary(&changes)),
+            Err(e) => Err(with_notices(e, changes.notices)),
+        }
     }
 
-    /// Deletes the item `id` permanently, or with `None`, every item in the trash.
-    fn delete(&self, id: Option<&str>) -> Result<String> {
-        let mut tx = self.app.begin_with(&[Place::Trash])?;
-        let idx = match id {
-            Some(id) => vec![ids::resolve(&mut tx.store, id, true)?],
-            None => (0..tx.store.items.len())
-                .filter(|&n| tx.store.items[n].place == Place::Trash)
-                .collect(),
-        };
-        tx.delete(&idx)?;
-        let changes = tx.close(&self.app);
-        let msg = match changes.shown.as_slice() {
-            [] => "the trash is empty".to_string(),
-            [c] => c.line(),
-            all => format!("deleted {} items", all.len()),
-        };
-        Ok(message(std::iter::once(msg).chain(changes.notices)))
+    /// Runs a change to the item `id`, which may be in the trash.
+    fn run(&self, id: &str, f: impl FnOnce(&mut Tx, usize) -> Result<()>) -> Result<String> {
+        self.transact(|tx| {
+            let n = ids::resolve(&mut tx.store, id, true)?;
+            f(tx, n)
+        })
     }
 
+    /// Done, or dropped, if the todo is open; else open again.
     fn toggle_status(&mut self, id: &str, status: Status) {
-        let r = match self.selected() {
-            Some(i) if i.kind() == Kind::Todo => {
-                let target = if i.meta.current_status() == Some(status) {
-                    Status::Open
-                } else {
-                    status
-                };
-                let app = &self.app;
-                self.mutate(id, target.verb(), |i| {
-                    status::apply(&app.cfg, i, target, app.clock.today)
-                        .map_err(|_| only_todos(i.id(), "a status"))
-                })
-            }
-            _ => Err(usage("only todos have a status")),
-        };
+        let app = &self.app;
+        let r = self.run(id, |tx, n| {
+            let target = match tx.store.items[n].meta.current_status() {
+                Some(s) if s == status => Status::Open,
+                _ => status,
+            };
+            status::set(tx, &app.cfg, target, app.clock.today, &[n])
+        });
         self.after(r, id);
     }
 
     fn bump_priority(&mut self, id: &str, by: i8) {
-        let r = match self.selected() {
-            Some(i) if i.kind() == Kind::Note => Err(usage("only todos have a priority")),
-            _ => self.mutate(id, "priority", |i| {
-                let p = (i.meta.priority.unwrap_or(0) as i8 + by).clamp(0, 3) as u8;
-                i.set_priority((p > 0).then_some(p))
-                    .map_err(|_| only_todos(i.id(), "a priority"))
-            }),
-        };
+        let r = self.run(id, |tx, n| {
+            let p = (tx.store.items[n].meta.priority.unwrap_or(0) as i8 + by).clamp(0, 3) as u8;
+            meta::set_priority(tx, (p > 0).then_some(p), &[n])
+        });
         self.after(r, id);
     }
 
@@ -746,6 +728,7 @@ impl Ui {
         suspend()?;
         let r = edit::edit_item(&self.app, id);
         resume(terminal)?;
+        self.redraw = true;
         self.reload(Some(id.to_string()));
         match r {
             Ok(changes) if !changes.notices.is_empty() => self.info(message(changes.notices)),
@@ -865,6 +848,49 @@ mod tests {
                 .is_some_and(|(m, error)| *error && m.contains("note"))
         );
         assert!(item(&ui, &ids[0]).meta.status.is_empty());
+    }
+
+    fn message(ui: &Ui) -> &str {
+        ui.message.as_ref().map_or("", |(m, _)| m)
+    }
+
+    #[test]
+    fn key_warnings() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        press(&mut ui, "u");
+        let Some(Popup::Input { input, .. }) = &mut ui.popup else {
+            panic!("no prompt");
+        };
+        *input = Input::new("yesterday");
+        enter(&mut ui);
+        assert_eq!(
+            message(&ui),
+            format!("due  {}  a; warning: the due date is in the past", ids[0])
+        );
+        press(&mut ui, "+++");
+        let before = item(&ui, &ids[0]).render();
+        press(&mut ui, "+");
+        assert_eq!(
+            message(&ui),
+            format!("warning: {}: priority is already 3", ids[0])
+        );
+        assert_eq!(item(&ui, &ids[0]).render(), before);
+    }
+
+    #[test]
+    fn tags_prompt() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        press(&mut ui, "#");
+        press(&mut ui, "x,y");
+        enter(&mut ui);
+        assert_eq!(item(&ui, &ids[0]).meta.tags, ["x", "y"]);
+        press(&mut ui, "#");
+        let Some(Popup::Input { input, .. }) = &mut ui.popup else {
+            panic!("no prompt");
+        };
+        *input = Input::new("y");
+        enter(&mut ui);
+        assert_eq!(message(&ui), format!("untag  {}  a", ids[0]));
     }
 
     #[test]
