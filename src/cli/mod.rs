@@ -118,7 +118,7 @@ pub fn run(argv: Vec<OsString>) -> Result<()> {
         Command::Grep(c) => list::grep(&app()?, c),
         Command::Tags(c) => tags::run(&app()?, c),
         Command::Interactive => crate::ui::run(app()?),
-        Command::Edit(c) => edit::edit_item(&app()?, &c.id, false),
+        Command::Edit(c) => edit::run(&app()?, &c.id),
         Command::Title(c) => meta::title(&app()?, c),
         Command::Schedule(c) => meta::date(&app()?, DateField::Scheduled, c),
         Command::Due(c) => meta::date(&app()?, DateField::Due, c),

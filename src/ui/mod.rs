@@ -122,7 +122,7 @@ pub fn run(app: App) -> Result<()> {
         return Err(general("the interactive mode requires a terminal"));
     }
     // Purges old trash before the screen is taken, so that its messages stay readable.
-    app.begin()?.finish(&app)?;
+    app.run_tx(&[], |_| Ok(()))?;
     let store = Store::open(&app.root, &Place::ALL, false)?;
     let mut ui = Ui::new(app, store);
     let mut terminal = ratatui::init();
@@ -744,11 +744,12 @@ impl Ui {
     /// Opens the item in the editor, with the terminal in its normal state.
     fn edit(&mut self, terminal: &mut DefaultTerminal, id: &str) -> Result<()> {
         suspend()?;
-        let r = edit::edit_item(&self.app, id, true);
+        let r = edit::edit_item(&self.app, id);
         resume(terminal)?;
         self.reload(Some(id.to_string()));
         match r {
-            Ok(()) => {}
+            Ok(changes) if !changes.notices.is_empty() => self.info(message(changes.notices)),
+            Ok(_) => {}
             Err(e) => self.error(e),
         }
         Ok(())
@@ -787,7 +788,11 @@ mod tests {
                     template: Some("none".into()),
                     ..CreateCmd::default()
                 };
-                create::create(&app, Kind::Todo, c).unwrap()
+                let draft = create::Draft::new(&app, Kind::Todo, c).unwrap();
+                let mut tx = app.begin().unwrap();
+                let id = create::create(&app, &mut tx, &draft).unwrap();
+                tx.close(&app);
+                id
             })
             .collect();
         let store = Store::open(dir.path(), &Place::ALL, false).unwrap();

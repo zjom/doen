@@ -66,11 +66,6 @@ impl Changes {
             self.paths.push(p.to_path_buf());
         }
     }
-
-    pub fn hush(&mut self) {
-        let shown = std::mem::take(&mut self.shown);
-        self.quiet.extend(shown);
-    }
 }
 
 /// The ID part of a filename `<YYYYMMDD>-<id>-<slug>.md`.
@@ -108,6 +103,13 @@ fn slug(title: &str) -> String {
         s[..40].rfind('-').unwrap_or(40)
     };
     s[..cut].trim_end_matches('-').to_string()
+}
+
+fn mismatch(path: &Path, id: &str) -> String {
+    format!(
+        "{}: the filename does not match the id '{id}'",
+        path.display()
+    )
 }
 
 pub fn require_root(root: &Path) -> Result<()> {
@@ -187,11 +189,7 @@ impl Store {
         match Item::parse(path, place, &text) {
             Ok(Some(item)) => {
                 if warn_invalid && filename_id(path) != Some(item.id()) {
-                    warn(format!(
-                        "{}: the filename does not match the id '{}'",
-                        path.display(),
-                        item.id()
-                    ));
+                    warn(mismatch(path, item.id()));
                 }
                 self.items.push(item);
                 Some(self.items.len() - 1)
@@ -205,6 +203,19 @@ impl Store {
                 None
             }
         }
+    }
+
+    /// The warnings for the files parsed so far: the files that cannot be parsed and the
+    /// filenames that do not match the ID. `load` prints them if `warn_invalid` is set.
+    pub fn load_warnings(&self) -> Vec<String> {
+        let invalid = self
+            .invalid
+            .iter()
+            .map(|(p, e)| format!("skipped {}: {e}", p.display()));
+        let mismatched = (self.items.iter())
+            .filter(|i| filename_id(&i.path) != Some(i.id()))
+            .map(|i| mismatch(&i.path, i.id()));
+        invalid.chain(mismatched).collect()
     }
 
     /// Parses every file in `places` that is not loaded yet.

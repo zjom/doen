@@ -342,12 +342,17 @@ impl Ui {
             return Err(usage("-c - reads stdin, which is not available in the ui"));
         }
         let edit = c.edit;
-        let r = create::create(&self.app, kind, c);
-        let id = r.as_ref().ok().cloned();
-        self.after(
-            r.map(|id| format!("created  {id}")),
-            id.as_deref().unwrap_or(""),
-        );
+        let app = &self.app;
+        let r = create::Draft::new(app, kind, c).and_then(|draft| {
+            let mut tx = app.begin()?;
+            let id = create::create(app, &mut tx, &draft)?;
+            Ok((id, tx.close(app)))
+        });
+        let id = r.as_ref().ok().map(|(id, _)| id.clone());
+        let msg = r.map(|(id, changes)| {
+            super::message(std::iter::once(format!("created  {id}")).chain(changes.notices))
+        });
+        self.after(msg, id.as_deref().unwrap_or(""));
         Ok(id.filter(|_| edit))
     }
 

@@ -11,10 +11,9 @@ use crate::term;
 
 pub fn run(app: &App, c: CheckCmd) -> Result<()> {
     let unfixed = if c.fix {
-        let mut tx = app.begin_with(&Place::ALL)?;
-        let unfixed = report(&mut tx.store, Some(&mut tx.changes))?;
-        tx.finish(app)?;
-        unfixed
+        app.run_tx(&Place::ALL, |tx| {
+            report(&mut tx.store, Some(&mut tx.changes))
+        })?
     } else {
         report(&mut Store::open(&app.root, &Place::ALL, false)?, None)?
     };

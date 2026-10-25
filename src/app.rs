@@ -40,7 +40,7 @@ impl App {
     }
 
     /// Opens the store and parses the items in `places`. Other items are parsed when an ID
-    /// resolves to them.
+    /// resolves to them. Prints a warning for each file that cannot be parsed.
     pub fn store(&self, places: &[Place]) -> Result<Store> {
         Store::open(&self.root, places, true)
     }
@@ -50,15 +50,22 @@ impl App {
         self.begin_with(&[])
     }
 
-    /// Like `begin`, and parses the items in `places` too.
+    /// Like `begin`, and parses the items in `places` too. The files that cannot be parsed and
+    /// the purged items are notices.
     pub fn begin_with(&self, places: &[Place]) -> Result<Tx> {
         require_root(&self.root)?;
         let lock = Lock::acquire(&self.root)?;
-        let mut store = self.store(&[Place::Trash])?;
-        store.load_places(places, true);
+        let mut store = Store::open(&self.root, &[Place::Trash], false)?;
+        store.load_places(places, false);
         let mut changes = Changes::default();
+        for w in store.load_warnings() {
+            changes.warn(w);
+        }
         for item in store.purge_trash(self.clock.today, self.cfg.trash_days, &mut changes)? {
-            eprintln!("doen: deleted permanently from the trash: {}", item.label());
+            changes.notice(format!(
+                "deleted permanently from the trash: {}",
+                item.label()
+            ));
             changes.quiet.push(Change::new("purge", &item));
         }
         Ok(Tx {
@@ -75,11 +82,7 @@ impl App {
         let r = f(&mut tx);
         print_notices(&mut tx.changes.notices);
         let v = r?;
-        let mut changes = tx.close(self);
-        for c in &changes.shown {
-            println!("{}", c.line());
-        }
-        print_notices(&mut changes.notices);
+        print_changes(&mut tx.close(self));
         Ok(v)
     }
 
@@ -128,6 +131,14 @@ fn print_notices(notices: &mut Vec<String>) {
     }
 }
 
+/// Prints the output lines on stdout and the notices on stderr.
+pub fn print_changes(changes: &mut Changes) {
+    for c in &changes.shown {
+        println!("{}", c.line());
+    }
+    print_notices(&mut changes.notices);
+}
+
 pub struct Tx {
     pub store: Store,
     pub changes: Changes,
@@ -153,16 +164,6 @@ impl Tx {
         Ok(())
     }
 
-    /// Prints the output lines and the notices, and makes the Git commit.
-    pub fn finish(self, app: &App) -> Result<()> {
-        let mut changes = self.close(app);
-        for c in &changes.shown {
-            println!("{}", c.line());
-        }
-        print_notices(&mut changes.notices);
-        Ok(())
-    }
-
     /// Makes the Git commit and returns the changes, with a failure of the commit as a notice.
     /// Prints nothing.
     pub fn close(mut self, app: &App) -> Changes {
@@ -179,19 +180,55 @@ impl Tx {
 mod tests {
     use super::*;
 
+    fn app(root: &Path, cfg: Config) -> App {
+        App {
+            root: root.into(),
+            cfg,
+            clock: Clock::at(
+                chrono::DateTime::parse_from_rfc3339("2026-10-16T12:00:00+11:00").unwrap(),
+                chrono::Weekday::Mon,
+            ),
+            yes: false,
+            color: false,
+        }
+    }
+
+    #[test]
+    fn begin_notices() {
+        let dir = tempfile::tempdir().unwrap();
+        let trash = dir.path().join(".trash");
+        std::fs::create_dir(&trash).unwrap();
+        let item = |id: &str, extra: &str| {
+            format!(
+                "---\nid: \"{id}\"\nkind: note\ncreated: 2026-09-01T12:00:00+11:00\ndate: 2026-09-01\n{extra}---\n# {id}\n"
+            )
+        };
+        std::fs::write(
+            trash.join("20260901-old0-x.md"),
+            item("old0", "trashed: 2026-09-01\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            trash.join("20260901-bad0-x.md"),
+            item("bad0", "kind: what\n"),
+        )
+        .unwrap();
+        let tx = app(dir.path(), Config::default()).begin().unwrap();
+        let n = &tx.changes.notices;
+        assert_eq!(n.len(), 2, "{n:?}");
+        assert!(n[0].starts_with("warning: skipped ") && n[0].contains("bad0"));
+        assert_eq!(n[1], "deleted permanently from the trash: old0  old0");
+        assert!(!trash.join("20260901-old0-x.md").exists());
+    }
+
     #[test]
     fn commit_failure_is_a_notice() {
         let dir = tempfile::tempdir().unwrap();
-        let app = App {
-            root: dir.path().into(),
-            cfg: Config {
-                git_autocommit: true,
-                ..Config::default()
-            },
-            clock: Clock::at(chrono::Local::now().fixed_offset(), chrono::Weekday::Mon),
-            yes: false,
-            color: false,
+        let cfg = Config {
+            git_autocommit: true,
+            ..Config::default()
         };
+        let app = app(dir.path(), cfg);
         let mut tx = app.begin().unwrap();
         let p = dir.path().join("x.md");
         std::fs::write(&p, "x").unwrap();
