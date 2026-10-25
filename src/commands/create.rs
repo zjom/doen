@@ -17,6 +17,17 @@ use crate::tags;
 use crate::template::{self, build_body};
 
 pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
+    let edit = c.edit;
+    let id = create(app, kind, c)?;
+    println!("{id}");
+    if edit {
+        edit_item(app, &id, true)?;
+    }
+    Ok(())
+}
+
+/// Creates an item and returns its ID. Prints nothing; `c.edit` is ignored.
+pub fn create(app: &App, kind: Kind, c: CreateCmd) -> Result<String> {
     let title = c.title.join(" ").trim().to_string();
     if kind == Kind::Note && c.scheduled.is_some() {
         return Err(usage("-S applies only to todos"));
@@ -115,12 +126,8 @@ pub fn run(app: &App, kind: Kind, c: CreateCmd) -> Result<()> {
     tx.changes.quiet.push(Change::new(kind.as_str(), &item));
     tx.store.items.push(item);
     tx.store.write(tx.store.items.len() - 1, &mut tx.changes)?;
-    println!("{id}");
     tx.finish(app)?;
-    if c.edit {
-        edit_item(app, &id, true)?;
-    }
-    Ok(())
+    Ok(id)
 }
 
 /// Opens the editor on a new item that has no title yet.

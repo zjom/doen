@@ -4,7 +4,7 @@ _doen() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
-    local cmds="note todo ls today show grep tags edit title schedule due date priority tag done drop reopen archive unarchive rm restore trash init check completion help"
+    local cmds="note todo ls today show grep tags ui edit title schedule due date priority tag done drop reopen archive unarchive rm restore trash init check completion help"
     if [[ $COMP_CWORD -eq 1 && $cur != -* ]]; then
         COMPREPLY=($(compgen -W "$cmds" -- "$cur"))
         return

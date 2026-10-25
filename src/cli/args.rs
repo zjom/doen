@@ -22,6 +22,7 @@ Read:
   show|s <id>...             print items
   grep <pattern> [filters]   full-text search
   tags [-a]                  list tags with counts
+  ui                         interactive mode
 
 Edit:
   edit|e <id>                open in the editor
@@ -84,6 +85,8 @@ pub enum Command {
     Grep(GrepCmd),
     /// List tags with counts
     Tags(TagsCmd),
+    /// Interactive mode
+    Ui,
     /// Open an item in the editor
     #[command(alias = "e")]
     Edit(EditCmd),

@@ -114,9 +114,14 @@ impl Tx {
         for c in &self.changes.shown {
             println!("{}", c.line());
         }
+        self.commit(app);
+        Ok(())
+    }
+
+    /// Makes the Git commit without printing anything.
+    pub fn commit(self, app: &App) {
         if app.cfg.git_autocommit {
             git::commit(&app.root, &self.changes);
         }
-        Ok(())
     }
 }

@@ -64,6 +64,7 @@ doen today                                   agenda: overdue, due today, schedul
 doen show|s <id>...                          print to stdout
 doen grep <pattern> [filters]                full-text search (ls -q with its own exit code)
 doen tags [-a]                               list tags with counts
+doen ui                                      interactive mode
 
 # edit
 doen edit|e <id>                             open in the editor
@@ -303,6 +304,19 @@ If the new value of a field is the same as the current value, doen does not repo
 - `doen show --raw` prints the files exactly as stored. If you give more than one ID, doen prints the line `==> <path> <==` before each file.
 - `doen show --path` prints only the file paths, one path on each line.
 - `doen tags` lists every tag with the number of items that have the tag. By default, the count includes only the items in the default scope (open todos and unarchived notes). With `-a`, the count includes the items in the store root and in the archive. Each count is for an exact tag. For example, the count for `work` does not include the items that have only the tag `work/acme`.
+
+### Interactive mode
+
+`doen ui` opens a full-screen interface in the style of lazygit. The command requires a terminal.
+
+- Two panels select what the item list shows: **Views** (today, todos, notes, closed, archive, trash) and **Tags** (the tags of the items in the view, with counts). The view `today` has the groups of `doen today`. The default view is `todos`. These panels are hidden until you ask for them. With the default keys, `v` shows or hides them, and `1` or `2` shows them with the focus on views or tags. `enter`, `esc` or `l` hides them again. The title of the item list names the selected view and tag.
+- The middle panel lists the items. The right panel shows the selected item: the title, the metadata summary of `doen show`, the status history, the path and the body. If the terminal is less than 90 columns wide, doen does not show the right panel.
+- `/` filters the list by a case-insensitive substring of the title and the body.
+- Every key is configurable with the `ui_keys` config key (see Config). The defaults are lazygit-like: `j`/`k` move, `space` toggles done, `e` opens the editor (as `doen edit`), `d` moves to the trash, `?` lists the keys with their action names. `ctrl-c` always quits and cannot be changed.
+- Text fields (prompts and the search) take every plain character as text: while you type, only the `submit` and `back` keys and the movement keys with `ctrl-`, `alt-` or a key name run an action. The editing keys of text fields (`ctrl-a`, `ctrl-e`, `ctrl-u`, `ctrl-k`, `ctrl-w`, arrows, `home`, `end`, `backspace`, `delete`) are fixed.
+- In date prompts, an empty value or `none` clears the date. A new note or todo gets the selected tag.
+- doen asks for confirmation before it moves an item to the trash or deletes it. `-y` has no effect.
+- Each change is one transaction, with the same lock, file moves and Git commit as the matching command. doen reloads the store after each change; `ctrl-r` reloads it on demand.
 
 ### Editing
 
@@ -657,6 +671,67 @@ Examples:
 | `ls_header` | `true` | If `false`, `doen ls` does not print the banner (see Header and footer). |
 | `ls_footer` | `true` | If `false`, `doen ls` does not print the cheatsheet (see Header and footer). |
 | `templates_dir` | `$XDG_CONFIG_HOME/doen/templates/` | The global templates directory (see Templates). A leading `~/` is the home directory. A relative path is relative to the store. |
+| `ui_keys` | see below | The keys of `doen ui`, by action. |
+
+#### `ui_keys`
+
+`ui_keys` maps action names to a key or a list of keys. An action that is not in the mapping keeps its default keys. An empty list unbinds the action. Unlike other keys, `ui_keys` in the store config file changes only the actions it names, and it has no `DOEN_*` environment variable. An unknown action name gives a warning; an invalid key is an error.
+
+A key is one character (`j`, `G`, `#`), a name (`space`, `enter`, `esc`, `tab`, `backtab` or `shift-tab`, `backspace`, `delete`, `insert`, `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`), or `f1` to `f12`, with optional `ctrl-` and `alt-` prefixes (`ctrl-r`, `alt-x`). Shift is part of the character: write `G`, not `shift-g`. Quote keys that YAML reads as syntax, such as `"#"`, `"?"` and `"["`.
+
+```yaml
+ui_keys:
+  quit: [q, ctrl-q]
+  toggle_done: [space, c]
+  delete: D
+  help: f1
+```
+
+When two actions share a key, the global actions win over the actions of the focused panel. For example, `enter` is both `submit` (in prompts, the search and the side panels) and `edit` (in the item list).
+
+| Action | Default keys | Meaning |
+| --- | --- | --- |
+| `quit` | `q` | Quit. |
+| `help` | `?` | Show the keybindings. |
+| `toggle_panels` | `v` | Show or hide the views and tags panels. |
+| `focus_views` | `1` | Show the panels, focus the views. |
+| `focus_tags` | `2` | Show the panels, focus the tags. |
+| `focus_items` | `3` | Focus the items. |
+| `focus_preview` | `0` | Focus the preview. |
+| `next_panel` | `tab` `backtab` | Switch views ↔ tags, items ↔ preview. |
+| `focus_left` | `h` `left` | Focus the items. |
+| `focus_right` | `l` `right` | Focus the preview; in the panels, close them. |
+| `back` | `esc` | Close the panels, leave the preview, clear the search, cancel a prompt. |
+| `submit` | `enter` | Accept a prompt or the search; in the panels, close them. |
+| `confirm` | `y` `enter` | Answer yes to a question. |
+| `search` | `/` | Search the titles and bodies. |
+| `reload` | `ctrl-r` | Reload the store. |
+| `new_note` | `n` | New note, with the selected tag. |
+| `new_todo` | `t` | New todo, with the selected tag. |
+| `down` | `j` `down` | Move down. |
+| `up` | `k` `up` | Move up. |
+| `top` | `g` `home` | Go to the first entry. |
+| `bottom` | `G` `end` | Go to the last entry. |
+| `page_down` | `pagedown` | Move down a page. |
+| `page_up` | `pageup` | Move up a page. |
+| `edit` | `e` `enter` | Open in the editor. |
+| `toggle_done` | `space` | Toggle done. |
+| `toggle_drop` | `x` | Toggle dropped. |
+| `rename` | `r` | Change the title. |
+| `schedule` | `s` | Set the scheduled date. |
+| `due` | `u` | Set the due date. |
+| `date` | `w` | Set the date. |
+| `priority_up` | `+` `=` | Raise the priority. |
+| `priority_down` | `-` | Lower the priority. |
+| `tags` | `#` | Edit the tags. |
+| `archive` | `a` | Archive or unarchive. |
+| `delete` | `d` | Move to the trash; in the trash, delete permanently. |
+| `restore` | `R` | Restore from the trash. |
+| `empty_trash` | `E` | Empty the trash. |
+| `preview_down` | `J` | Scroll the preview down. |
+| `preview_up` | `K` | Scroll the preview up. |
+| `preview_page_down` | `ctrl-d` | Scroll the preview down a page. |
+| `preview_page_up` | `ctrl-u` | Scroll the preview up a page. |
 
 ### Environment
 

@@ -3,7 +3,7 @@ use crate::cli::args::{DateCmd, PriorityCmd, TagArgs, TitleCmd};
 use crate::commands::resolve_ids;
 use crate::dates::parse_date;
 use crate::error::{Result, usage, warn};
-use crate::item::{Kind, parse_priority};
+use crate::item::{Item, Kind, parse_priority};
 use crate::tags;
 
 pub fn title(app: &App, c: TitleCmd) -> Result<()> {
@@ -18,6 +18,13 @@ pub fn title(app: &App, c: TitleCmd) -> Result<()> {
         warn(format!("{}: the title is already '{new_title}'", item.id()));
         return tx.finish(app);
     }
+    retitle(item, &new_title);
+    tx.save(n, "title")?;
+    tx.finish(app)
+}
+
+/// Rewrites the H1 heading and keeps the checkbox.
+pub fn retitle(item: &mut Item, title: &str) {
     let checkbox = match item.kind() {
         Kind::Note => None,
         Kind::Todo => item
@@ -27,9 +34,7 @@ pub fn title(app: &App, c: TitleCmd) -> Result<()> {
             .and_then(|h| h.checkbox)
             .or_else(|| item.meta.current_status().map(|s| s.checkbox())),
     };
-    item.set_heading(checkbox, &new_title);
-    tx.save(n, "title")?;
-    tx.finish(app)
+    item.set_heading(checkbox, title);
 }
 
 #[derive(Clone, Copy, PartialEq)]

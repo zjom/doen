@@ -1,5 +1,5 @@
 # fish completion for doen
-set -l cmds note todo ls today show grep tags edit title schedule due date priority tag done drop reopen archive unarchive rm restore trash init check completion help
+set -l cmds note todo ls today show grep tags ui edit title schedule due date priority tag done drop reopen archive unarchive rm restore trash init check completion help
 complete -c doen -f
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a note -d 'create a note'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a todo -d 'create a todo'
@@ -8,6 +8,7 @@ complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a today -d 'agenda'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a show -d 'print items'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a grep -d 'full-text search'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a tags -d 'list tags'
+complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a ui -d 'interactive mode'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a edit -d 'open in the editor'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a title -d 'change the title'
 complete -c doen -n "not __fish_seen_subcommand_from $cmds" -a schedule -d 'set the scheduled date'

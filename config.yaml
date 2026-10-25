@@ -14,3 +14,7 @@
 # ls_header: true        # the banner above `doen ls`
 # ls_footer: true        # the cheatsheet below `doen ls`
 # templates_dir: ~/.config/doen/templates
+# ui_keys:               # the keys of `doen ui`, by action; `?` in doen ui lists the actions
+#   quit: q
+#   down: [j, down]      # a list binds several keys; [] unbinds the action
+#   tags: "#"            # quote keys that YAML treats as syntax

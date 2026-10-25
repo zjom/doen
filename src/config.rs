@@ -9,8 +9,9 @@ use crate::error::{Result, general, warn};
 use crate::filter::SortField;
 use crate::frontmatter::{Value, parse_yaml};
 use crate::tags;
+use crate::ui::keys::Keymap;
 
-pub const KEYS: [&str; 13] = [
+pub const KEYS: [&str; 14] = [
     "editor",
     "date_format",
     "week_start",
@@ -24,6 +25,7 @@ pub const KEYS: [&str; 13] = [
     "ls_header",
     "ls_footer",
     "templates_dir",
+    "ui_keys",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, ValueEnum)]
@@ -48,6 +50,7 @@ pub struct Config {
     pub ls_header: bool,
     pub ls_footer: bool,
     pub templates_dir: Option<PathBuf>,
+    pub ui_keys: Keymap,
 }
 
 impl Default for Config {
@@ -66,6 +69,7 @@ impl Default for Config {
             ls_header: true,
             ls_footer: true,
             templates_dir: None,
+            ui_keys: Keymap::default(),
         }
     }
 }
@@ -153,7 +157,8 @@ impl Config {
                     .map_err(|e| general(format!("{}: {e}", src.display())))?;
             }
         }
-        for key in KEYS {
+        // `ui_keys` is a mapping, which an environment variable cannot hold.
+        for key in KEYS.into_iter().filter(|k| *k != "ui_keys") {
             let var = format!("DOEN_{}", key.to_ascii_uppercase());
             if let Ok(v) = std::env::var(&var) {
                 cfg.apply(key, &Value::Str(v))
@@ -171,6 +176,9 @@ impl Config {
         if key == "default_tags" {
             self.default_tags = tags::from_value(v)?;
             return Ok(());
+        }
+        if key == "ui_keys" {
+            return self.apply_ui_keys(v);
         }
         let s = v
             .as_str()
@@ -199,6 +207,38 @@ impl Config {
         Ok(())
     }
 
+    /// Replaces the keys of the actions in the mapping. Other actions keep their keys.
+    fn apply_ui_keys(&mut self, v: &Value) -> std::result::Result<(), String> {
+        let Value::Map(entries) = v else {
+            return Err("'ui_keys' must be a mapping of actions to keys".into());
+        };
+        for (action, keys) in entries {
+            let keys: Vec<&str> = match keys {
+                Value::Str(k) => vec![k.as_str()],
+                Value::Seq(ks) => ks
+                    .iter()
+                    .map(|k| {
+                        k.as_str()
+                            .ok_or_else(|| format!("ui_keys.{action}: a key must be a string"))
+                    })
+                    .collect::<std::result::Result<_, _>>()?,
+                Value::Map(_) => {
+                    return Err(format!(
+                        "ui_keys.{action}: expected a key or a list of keys"
+                    ));
+                }
+            };
+            if !self
+                .ui_keys
+                .set(action, &keys)
+                .map_err(|e| format!("ui_keys.{action}: {e}"))?
+            {
+                warn(format!("unknown action in 'ui_keys': '{action}'"));
+            }
+        }
+        Ok(())
+    }
+
     /// The global templates directory: `templates_dir`, or `$XDG_CONFIG_HOME/doen/templates/`.
     /// A relative `templates_dir` is relative to the store.
     pub fn templates_dir(&self, store: &Path) -> PathBuf {
@@ -214,3 +254,31 @@ impl Config {
 }
 
 pub const DEFAULT_CONFIG: &str = include_str!("../config.yaml");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::keys::Action;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn ui_keys() {
+        let mut cfg = Config::default();
+        let yaml = "ui_keys:\n  quit: Q\n  down: [j, ctrl-n]\n  help: []\n";
+        let Some(Value::Map(m)) = parse_yaml(yaml).unwrap() else {
+            panic!()
+        };
+        cfg.apply(&m[0].0, &m[0].1).unwrap();
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        let k = &cfg.ui_keys;
+        assert!(k.is(Action::Quit, &key('Q')) && !k.is(Action::Quit, &key('q')));
+        assert!(k.is(
+            Action::Down,
+            &KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL)
+        ));
+        assert!(k.first(Action::Help).is_none());
+        assert!(k.is(Action::Up, &key('k')), "other actions keep their keys");
+        let bad = parse_yaml("quit: hyper-q").unwrap().unwrap();
+        assert!(cfg.apply("ui_keys", &bad).is_err());
+    }
+}

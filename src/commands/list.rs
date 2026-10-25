@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use regex::Regex;
 
 use crate::app::App;
@@ -5,7 +6,7 @@ use crate::banner::{print_footer, print_header};
 use crate::cli::args::{FilterArgs, GrepCmd, LsCmd, OutputArgs, TodayCmd, TrashCmd};
 use crate::dates::{Clock, Range, parse_range};
 use crate::error::{Error, Result, usage};
-use crate::filter::{Query, StatusFilter, TextMatch, select};
+use crate::filter::{Query, SortField, StatusFilter, TextMatch, select};
 use crate::item::{Item, Kind, Place, Status, parse_priority};
 use crate::output::{Format, limit, print_groups};
 use crate::tags::TagFilter;
@@ -165,13 +166,26 @@ pub fn today(app: &App, c: TodayCmd) -> Result<()> {
         ..Query::default()
     };
     let store = app.store(&q.places)?;
-    let today = app.clock.today;
+    let base = store.items.iter().filter(|i| q.accepts(i, &app.clock));
+    let groups = agenda(
+        base,
+        app.clock.today,
+        c.output.sort.or(app.cfg.default_sort),
+        c.output.reverse,
+    );
+    print(app, groups, &c.output);
+    Ok(())
+}
+
+/// The groups of `doen today`: overdue todos, todos due today, scheduled todos, today's notes.
+pub fn agenda<'a>(
+    items: impl Iterator<Item = &'a Item>,
+    today: NaiveDate,
+    field: Option<SortField>,
+    reverse: bool,
+) -> Vec<(&'static str, Vec<&'a Item>)> {
     let open_todo = |i: &&Item| i.meta.current_status() == Some(Status::Open);
-    let base: Vec<&Item> = store
-        .items
-        .iter()
-        .filter(|i| q.accepts(i, &app.clock))
-        .collect();
+    let base: Vec<&Item> = items.collect();
     let overdue = base
         .iter()
         .copied()
@@ -193,14 +207,10 @@ pub fn today(app: &App, c: TodayCmd) -> Result<()> {
         .iter()
         .copied()
         .filter(|i| i.kind() == Kind::Note && i.meta.date == today);
-    let field = c.output.sort.or(app.cfg.default_sort);
-    let reverse = c.output.reverse;
-    let groups = vec![
+    vec![
         ("OVERDUE", select(overdue, field, reverse).0),
         ("DUE TODAY", select(due, field, reverse).0),
         ("SCHEDULED", select(scheduled, field, reverse).0),
         ("NOTES", select(notes, field, reverse).1),
-    ];
-    print(app, groups, &c.output);
-    Ok(())
+    ]
 }
