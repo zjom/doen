@@ -1,8 +1,9 @@
-use crate::app::{App, Tx};
-use crate::cli::args::{IdsCmd, RmCmd};
-use crate::commands::resolve_ids;
+use chrono::NaiveDate;
+
+use crate::app::Tx;
 use crate::error::Result;
 use crate::item::{Item, Place};
+use crate::store::Store;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Lifecycle {
@@ -33,58 +34,50 @@ impl Lifecycle {
     }
 }
 
-fn confirm(app: &App, tx: &mut Tx, idx: &[usize], verb: &str, rest: &str) -> Result<()> {
-    let these = match idx.len() {
+/// The confirmation question for `n` items, as `Move this item to the trash?`.
+pub fn question(verb: &str, n: usize, rest: &str) -> String {
+    let these = match n {
         1 => "this item".to_string(),
         n => format!("these {n} items"),
     };
-    app.confirm(tx, idx, &format!("{verb} {these}{rest}?"))
+    format!("{verb} {these}{rest}?")
 }
 
-pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
-    app.run_tx(&[], |tx| {
-        let idx = resolve_ids(&mut tx.store, &c.id, op == Lifecycle::Restore)?;
-        if op == Lifecycle::Trash {
-            confirm(app, tx, &idx, "Move", " to the trash")?;
+pub fn apply(tx: &mut Tx, op: Lifecycle, idx: &[usize], today: NaiveDate) -> Result<()> {
+    for &n in idx {
+        let item = &mut tx.store.items[n];
+        if let Some(why) = op.noop(item) {
+            tx.changes.warn(format!("{} is {why}", item.id()));
+            continue;
         }
-        let today = app.clock.today;
-        for n in idx {
-            let item = &mut tx.store.items[n];
-            if let Some(why) = op.noop(item) {
-                tx.changes.warn(format!("{} is {why}", item.id()));
-                continue;
-            }
-            match op {
-                Lifecycle::Archive => item.archive(today),
-                Lifecycle::Unarchive => item.unarchive(),
-                Lifecycle::Trash => item.trash(today),
-                Lifecycle::Restore => item.restore(),
-            }
-            tx.save(n, op.verb())?;
+        match op {
+            Lifecycle::Archive => item.archive(today),
+            Lifecycle::Unarchive => item.unarchive(),
+            Lifecycle::Trash => item.trash(today),
+            Lifecycle::Restore => item.restore(),
         }
-        Ok(())
-    })
+        tx.save(n, op.verb())?;
+    }
+    Ok(())
 }
 
-/// `rm --force`: deletes the items permanently, including items already in the trash.
-pub fn delete(app: &App, c: RmCmd) -> Result<()> {
-    app.run_tx(&[], |tx| {
-        let idx = resolve_ids(&mut tx.store, &c.id, true)?;
-        confirm(app, tx, &idx, "Delete", " permanently")?;
-        tx.delete(&idx)
-    })
+/// Deletes the items permanently, including items already in the trash.
+pub fn delete(tx: &mut Tx, idx: &[usize]) -> Result<()> {
+    tx.delete(idx)
 }
 
-pub fn empty_trash(app: &App) -> Result<()> {
-    app.run_tx(&[], |tx| {
-        let idx: Vec<usize> = (0..tx.store.items.len())
-            .filter(|&n| tx.store.items[n].place == Place::Trash)
-            .collect();
-        if idx.is_empty() {
-            tx.changes.notice("the trash is empty");
-            return Ok(());
-        }
-        confirm(app, tx, &idx, "Delete", " permanently")?;
-        tx.delete(&idx)
-    })
+/// The items in the trash.
+pub fn trashed(store: &Store) -> Vec<usize> {
+    (0..store.items.len())
+        .filter(|&n| store.items[n].place == Place::Trash)
+        .collect()
+}
+
+pub fn empty_trash(tx: &mut Tx) -> Result<()> {
+    let idx = trashed(&tx.store);
+    if idx.is_empty() {
+        tx.changes.notice("the trash is empty");
+        return Ok(());
+    }
+    tx.delete(&idx)
 }

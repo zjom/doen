@@ -1,51 +1,79 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::app::App;
-use crate::cli::args::CheckCmd;
+use crate::app::Tx;
+use crate::commands::Confirm;
 use crate::error::{Error, Result};
 use crate::ids;
 use crate::item::{Item, Place};
 use crate::store::{Change, Changes, Store, TMP_PREFIX, filename, filename_id};
-use crate::term;
 
-pub fn run(app: &App, c: CheckCmd) -> Result<()> {
-    let unfixed = if c.fix {
-        app.run_tx(&Place::ALL, |tx| {
-            report(&mut tx.store, Some(&mut tx.changes))
-        })?
-    } else {
-        report(&mut Store::open(&app.root, &Place::ALL, false)?, None)?
-    };
-    let unfixed = unfixed + temp_files(app)?;
+/// `check`, and with `fix`, `check --fix`. The report lines go to `changes.report`. `confirm` is
+/// asked before the temporary files are deleted; `Declined` keeps them.
+pub fn run(tx: &mut Tx, fix: bool, confirm: &mut Confirm) -> Result<()> {
+    tx.store.load_places(&Place::ALL, false);
+    let changes = if fix { Some(&mut tx.changes) } else { None };
+    let (lines, mut unfixed) = report(&mut tx.store, changes)?;
+    tx.changes.report.extend(lines);
+    let found = temp_files(&tx.store.root);
+    if !found.is_empty() {
+        for (path, title) in &found {
+            let line = format!("{}: temporary file: {title}", path.display());
+            tx.changes.report.push(line);
+        }
+        let paths: Vec<PathBuf> = found.into_iter().map(|(p, _)| p).collect();
+        match confirm(tx, &[], &temp_question(paths.len())) {
+            Ok(()) => tx.changes.report.extend(delete_temp_files(&paths)?),
+            Err(Error::Declined(_)) => unfixed += paths.len(),
+            Err(e) => return Err(e),
+        }
+    }
     match unfixed {
         0 => Ok(()),
         _ => Err(Error::Silent(1)),
     }
 }
 
-fn fixed(store: &Store, n: usize, ch: &mut Changes, path: &Path, msg: &str) {
-    println!("{}: {msg}", path.display());
+pub fn temp_question(n: usize) -> String {
+    format!(
+        "Delete {n} temporary file{}? An open editor may still use it.",
+        if n == 1 { "" } else { "s" }
+    )
+}
+
+fn fixed(
+    store: &Store,
+    n: usize,
+    ch: &mut Changes,
+    lines: &mut Vec<String>,
+    path: &Path,
+    msg: &str,
+) {
+    lines.push(format!("{}: {msg}", path.display()));
     ch.quiet.push(Change::new("check --fix", &store.items[n]));
 }
 
-/// Prints the problems and fixes them if `changes` is given. Returns the number of
-/// problems that are not fixed.
-fn report(store: &mut Store, mut changes: Option<&mut Changes>) -> Result<usize> {
+/// The problems of the store, and the fixes if `changes` is given. Returns the lines of the
+/// report and the number of problems that are not fixed.
+pub fn report(
+    store: &mut Store,
+    mut changes: Option<&mut Changes>,
+) -> Result<(Vec<String>, usize)> {
+    let mut lines = vec![];
     let mut open = 0;
-    let mut problem = |path: &Path, msg: String| {
-        println!("{}: {msg}", path.display());
+    let mut problem = |lines: &mut Vec<String>, path: &Path, msg: String| {
+        lines.push(format!("{}: {msg}", path.display()));
         open += 1;
     };
     for (path, e) in &store.invalid {
-        problem(path, format!("invalid frontmatter: {e}"));
+        problem(&mut lines, path, format!("invalid frontmatter: {e}"));
     }
     for item in &store.items {
         for t in &item.meta.bad_tags {
-            problem(&item.path, format!("invalid tag '{t}'"));
+            problem(&mut lines, &item.path, format!("invalid tag '{t}'"));
         }
         if !item.has_title() {
-            problem(&item.path, "missing title".into());
+            problem(&mut lines, &item.path, "missing title".into());
         }
     }
 
@@ -59,7 +87,7 @@ fn report(store: &mut Store, mut changes: Option<&mut Changes>) -> Result<usize>
         for &n in &group[1..] {
             let path = store.items[n].path.clone();
             let Some(ch) = changes.as_deref_mut() else {
-                problem(&path, format!("duplicate id '{id}'"));
+                problem(&mut lines, &path, format!("duplicate id '{id}'"));
                 continue;
             };
             let new_id = ids::generate(store);
@@ -74,13 +102,8 @@ fn report(store: &mut Store, mut changes: Option<&mut Changes>) -> Result<usize>
                 _ => filename(item),
             };
             store.rename(n, &new_name, ch)?;
-            fixed(
-                store,
-                n,
-                ch,
-                &path,
-                &format!("duplicate id '{id}': new id '{new_id}'"),
-            );
+            let msg = format!("duplicate id '{id}': new id '{new_id}'");
+            fixed(store, n, ch, &mut lines, &path, &msg);
         }
     }
 
@@ -88,6 +111,7 @@ fn report(store: &mut Store, mut changes: Option<&mut Changes>) -> Result<usize>
         let item = &store.items[n];
         if filename_id(&item.path) != Some(item.id()) {
             problem(
+                &mut lines,
                 &item.path,
                 format!("the filename does not match the id '{}'", item.id()),
             );
@@ -99,12 +123,17 @@ fn report(store: &mut Store, mut changes: Option<&mut Changes>) -> Result<usize>
         let Some(ch) = changes.as_deref_mut() else {
             if wrong_dir {
                 problem(
+                    &mut lines,
                     &path,
                     format!("wrong directory: the item belongs in {expected}"),
                 );
             }
             if checkbox {
-                problem(&path, "the checkbox disagrees with the status log".into());
+                problem(
+                    &mut lines,
+                    &path,
+                    "the checkbox disagrees with the status log".into(),
+                );
             }
             continue;
         };
@@ -114,21 +143,27 @@ fn report(store: &mut Store, mut changes: Option<&mut Changes>) -> Result<usize>
         store.items[n].sync_checkbox();
         store.write(n, ch)?;
         if wrong_dir {
-            fixed(store, n, ch, &path, &format!("moved to {expected}"));
+            fixed(
+                store,
+                n,
+                ch,
+                &mut lines,
+                &path,
+                &format!("moved to {expected}"),
+            );
         }
         if checkbox {
-            fixed(store, n, ch, &path, "rewrote the checkbox");
+            fixed(store, n, ch, &mut lines, &path, "rewrote the checkbox");
         }
     }
-    Ok(open)
+    Ok((lines, open))
 }
 
-/// Offers to delete the temporary files left behind by a crash or an open editor. Returns the
-/// number of files that are not deleted.
-fn temp_files(app: &App) -> Result<usize> {
-    let mut found: Vec<(PathBuf, String)> = vec![];
+/// The temporary files left behind by a crash or an open editor, with the titles of their items.
+pub fn temp_files(root: &Path) -> Vec<(PathBuf, String)> {
+    let mut found = vec![];
     for place in Place::ALL {
-        let Ok(entries) = std::fs::read_dir(app.root.join(place.dir())) else {
+        let Ok(entries) = std::fs::read_dir(root.join(place.dir())) else {
             continue;
         };
         let mut paths: Vec<PathBuf> = entries
@@ -148,23 +183,15 @@ fn temp_files(app: &App) -> Result<usize> {
             found.push((path, title));
         }
     }
-    if found.is_empty() {
-        return Ok(0);
-    }
-    for (path, title) in &found {
-        println!("{}: temporary file: {title}", path.display());
-    }
-    let question = format!(
-        "Delete {} temporary file{}? An open editor may still use it.",
-        found.len(),
-        if found.len() == 1 { "" } else { "s" }
-    );
-    if !app.yes && !term::confirm(&question).unwrap_or(false) {
-        return Ok(found.len());
-    }
-    for (path, _) in &found {
+    found
+}
+
+/// Deletes the files. Returns the lines of the report.
+pub fn delete_temp_files(paths: &[PathBuf]) -> Result<Vec<String>> {
+    let mut lines = vec![];
+    for path in paths {
         std::fs::remove_file(path)?;
-        println!("{}: deleted", path.display());
+        lines.push(format!("{}: deleted", path.display()));
     }
-    Ok(0)
+    Ok(lines)
 }

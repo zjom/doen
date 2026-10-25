@@ -720,7 +720,7 @@ impl Ui {
                 };
                 let app = &self.app;
                 self.mutate(id, target.verb(), |i| {
-                    status::apply(app, i, target, app.clock.today)
+                    status::apply(&app.cfg, i, target, app.clock.today)
                         .map_err(|_| only_todos(i.id(), "a status"))
                 })
             }
@@ -759,42 +759,15 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::create;
-    use crate::dates::{Clock, parse_iso};
+    use crate::dates::parse_iso;
+    use crate::testing::{app, create};
     use tempfile::TempDir;
-
-    fn app(root: &std::path::Path) -> App {
-        App {
-            root: root.into(),
-            cfg: Default::default(),
-            clock: Clock::at(
-                chrono::DateTime::parse_from_rfc3339("2026-10-16T12:00:00+11:00").unwrap(),
-                chrono::Weekday::Mon,
-            ),
-            yes: false,
-            color: false,
-        }
-    }
 
     /// A ui on a new store with the todos `titles`, the first one selected.
     fn setup(titles: &[&str]) -> (TempDir, Ui, Vec<String>) {
         let dir = tempfile::tempdir().unwrap();
         let app = app(dir.path());
-        let ids = titles
-            .iter()
-            .map(|t| {
-                let c = CreateCmd {
-                    title: vec![t.to_string()],
-                    template: Some("none".into()),
-                    ..CreateCmd::default()
-                };
-                let draft = create::Draft::new(&app, Kind::Todo, c).unwrap();
-                let mut tx = app.begin().unwrap();
-                let id = create::create(&app, &mut tx, &draft).unwrap();
-                tx.close(&app);
-                id
-            })
-            .collect();
+        let ids = titles.iter().map(|t| create(&app, Kind::Todo, t)).collect();
         let store = Store::open(dir.path(), &Place::ALL, false).unwrap();
         (dir, Ui::new(app, store), ids)
     }

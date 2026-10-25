@@ -75,20 +75,20 @@ impl App {
         })
     }
 
-    /// Runs a mutating command in a transaction. Prints the notices on stderr, whether `f`
-    /// fails or not. If `f` succeeds, prints the output lines on stdout and makes the Git commit.
+    /// Runs a mutating command in a transaction, prints the report and the output lines on
+    /// stdout and the notices on stderr, and makes the Git commit. Whether `f` fails or not: the
+    /// files that `f` changed are changed.
     pub fn run_tx<T>(&self, places: &[Place], f: impl FnOnce(&mut Tx) -> Result<T>) -> Result<T> {
         let mut tx = self.begin_with(places)?;
         let r = f(&mut tx);
-        print_notices(&mut tx.changes.notices);
-        let v = r?;
         print_changes(&mut tx.close(self));
-        Ok(v)
+        r
     }
 
     /// Lists the items on stderr and asks for confirmation on the terminal. `-y` skips the prompt.
-    /// The notices so far are printed first.
+    /// The report and the notices so far are printed first.
     pub fn confirm(&self, tx: &mut Tx, idx: &[usize], question: &str) -> Result<()> {
+        print_report(&mut tx.changes.report);
         print_notices(&mut tx.changes.notices);
         for &n in idx {
             eprintln!("  {}", tx.store.items[n].label());
@@ -131,8 +131,15 @@ fn print_notices(notices: &mut Vec<String>) {
     }
 }
 
-/// Prints the output lines on stdout and the notices on stderr.
+fn print_report(report: &mut Vec<String>) {
+    for l in report.drain(..) {
+        println!("{l}");
+    }
+}
+
+/// Prints the report and the output lines on stdout, and the notices on stderr.
 pub fn print_changes(changes: &mut Changes) {
+    print_report(&mut changes.report);
     for c in &changes.shown {
         println!("{}", c.line());
     }
@@ -179,19 +186,7 @@ impl Tx {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn app(root: &Path, cfg: Config) -> App {
-        App {
-            root: root.into(),
-            cfg,
-            clock: Clock::at(
-                chrono::DateTime::parse_from_rfc3339("2026-10-16T12:00:00+11:00").unwrap(),
-                chrono::Weekday::Mon,
-            ),
-            yes: false,
-            color: false,
-        }
-    }
+    use crate::testing::app_with as app;
 
     #[test]
     fn begin_notices() {

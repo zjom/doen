@@ -16,6 +16,8 @@ mod store;
 mod tags;
 mod template;
 mod term;
+#[cfg(test)]
+mod testing;
 mod ui;
 
 fn main() {

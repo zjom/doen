@@ -6,16 +6,13 @@ use std::ffi::OsString;
 use clap::{CommandFactory, Parser};
 
 use crate::app::App;
-use crate::commands::lifecycle::{self, Lifecycle};
-use crate::commands::meta;
-use crate::commands::{check, completion, create, edit, init, list, show, status, tags};
+use crate::commands::{completion, create, dispatch, edit, init, list, show, tags};
 use crate::config::store_path;
 use crate::error::{Error, Result, usage};
 use crate::ids;
-use crate::item::DateField;
-use crate::item::{Kind, Status};
+use crate::item::Kind;
 use crate::store::Store;
-use args::{Cli, Command, GlobalArgs, IdsCmd, TOP_HELP, TagAction};
+use args::{Cli, Command, GlobalArgs, TOP_HELP};
 use resolve::Resolved;
 
 pub fn try_parse<T: Parser>(argv: impl IntoIterator<Item = OsString>) -> clap::error::Result<T> {
@@ -119,32 +116,19 @@ pub fn run(argv: Vec<OsString>) -> Result<()> {
         Command::Tags(c) => tags::run(&app()?, c),
         Command::Interactive => crate::ui::run(app()?),
         Command::Edit(c) => edit::run(&app()?, &c.id),
-        Command::Title(c) => meta::title(&app()?, c),
-        Command::Schedule(c) => meta::date(&app()?, DateField::Scheduled, c),
-        Command::Due(c) => meta::date(&app()?, DateField::Due, c),
-        Command::Date(c) => meta::date(&app()?, DateField::Date, c),
-        Command::Priority(c) => meta::priority(&app()?, c),
-        Command::Tag { action } => match action {
-            TagAction::Add(t) => meta::tag(&app()?, true, t),
-            TagAction::Rm(t) => meta::tag(&app()?, false, t),
-        },
-        Command::Done(c) => status::run(&app()?, Status::Done, c),
-        Command::Drop(c) => status::run(&app()?, Status::Drop, c),
-        Command::Reopen(c) => status::run(&app()?, Status::Open, c),
-        Command::Archive(c) => lifecycle::run(&app()?, Lifecycle::Archive, c),
-        Command::Unarchive(c) => lifecycle::run(&app()?, Lifecycle::Unarchive, c),
-        Command::Rm(c) if c.force => lifecycle::delete(&app()?, c),
-        Command::Rm(c) => lifecycle::run(&app()?, Lifecycle::Trash, IdsCmd { id: c.id }),
-        Command::Restore(c) => lifecycle::run(&app()?, Lifecycle::Restore, c),
-        Command::Trash(c) if c.empty => lifecycle::empty_trash(&app()?),
-        Command::Trash(c) => list::trash(&app()?, c),
+        Command::Trash(c) if !c.empty => list::trash(&app()?, c),
         Command::Init => init::run(g.dir.as_deref()),
-        Command::Check(c) => check::run(&app()?, c),
         Command::Completion(c) => {
             completion::print(c.shell);
             Ok(())
         }
         Command::Help(c) => help(c.command.as_deref()),
         Command::Complete(c) => completion::data(&app()?, &c.what),
+        cmd => {
+            let app = app()?;
+            app.run_tx(&[], |tx| {
+                dispatch(&app, tx, cmd, &mut |tx, idx, q| app.confirm(tx, idx, q))
+            })
+        }
     }
 }

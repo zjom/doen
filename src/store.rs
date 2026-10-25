@@ -50,6 +50,8 @@ pub struct Changes {
     pub paths: Vec<PathBuf>,
     /// Messages for stderr, without the `doen: ` prefix.
     pub notices: Vec<String>,
+    /// The lines of a report, as `check` prints them on stdout.
+    pub report: Vec<String>,
 }
 
 impl Changes {
