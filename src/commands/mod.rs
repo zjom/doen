@@ -12,7 +12,7 @@ pub mod tags;
 
 use std::io::Read;
 
-use crate::error::{Result, usage};
+use crate::error::{Error, Result, usage};
 use crate::ids;
 use crate::item::Kind;
 use crate::store::Store;
@@ -51,10 +51,12 @@ pub fn require_todos(store: &Store, idx: &[usize], what: &str) -> Result<()> {
         .map(|&n| &store.items[n])
         .find(|i| i.kind() == Kind::Note)
     {
-        Some(i) => Err(usage(format!(
-            "{} is a note: only todos have {what}",
-            i.id()
-        ))),
+        Some(i) => Err(only_todos(i.id(), what)),
         None => Ok(()),
     }
+}
+
+/// The error of a todo-only change, as `a priority`, to the note `id`.
+pub fn only_todos(id: &str, what: &str) -> Error {
+    usage(format!("{id} is a note: only todos have {what}"))
 }

@@ -1,11 +1,9 @@
-use chrono::NaiveDate;
-
 use crate::app::App;
 use crate::cli::args::{DateCmd, PriorityCmd, TagArgs, TitleCmd};
-use crate::commands::{require_todos, resolve_ids};
-use crate::dates::{Clock, parse_date};
+use crate::commands::{only_todos, require_todos, resolve_ids};
 use crate::error::{Result, usage, warn};
-use crate::item::{Item, Kind, Meta, parse_priority_or_none};
+pub use crate::item::DateField;
+use crate::item::{Item, Kind, parse_priority_or_none};
 use crate::tags;
 
 pub fn title(app: &App, c: TitleCmd) -> Result<()> {
@@ -39,44 +37,6 @@ pub fn retitle(item: &mut Item, title: &str) {
     item.set_heading(checkbox, title);
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum DateField {
-    Scheduled,
-    Due,
-    Date,
-}
-
-impl DateField {
-    pub fn key(self) -> &'static str {
-        match self {
-            DateField::Scheduled => "scheduled",
-            DateField::Due => "due",
-            DateField::Date => "date",
-        }
-    }
-
-    /// Only `date` is required; the todo-only fields can be cleared.
-    pub fn todo_only(self) -> bool {
-        self != DateField::Date
-    }
-
-    pub fn get(self, m: &Meta) -> Option<NaiveDate> {
-        match self {
-            DateField::Scheduled => m.scheduled,
-            DateField::Due => m.due,
-            DateField::Date => Some(m.date),
-        }
-    }
-
-    /// `none` clears a todo-only field.
-    pub fn parse(self, s: &str, clock: &Clock) -> Result<Option<NaiveDate>> {
-        if self.todo_only() && s == "none" {
-            return Ok(None);
-        }
-        parse_date(s, clock).map(Some).map_err(usage)
-    }
-}
-
 pub fn date(app: &App, field: DateField, c: DateCmd) -> Result<()> {
     let value = field.parse(&c.date, &app.clock)?;
     let mut tx = app.begin()?;
@@ -98,7 +58,8 @@ pub fn date(app: &App, field: DateField, c: DateCmd) -> Result<()> {
             ));
             continue;
         }
-        item.set_date(field.key(), value);
+        item.set_date(field, value)
+            .map_err(|_| only_todos(item.id(), &format!("a {} date", field.key())))?;
         tx.save(n, field.key())?;
     }
     tx.finish(app)
@@ -115,7 +76,8 @@ pub fn priority(app: &App, c: PriorityCmd) -> Result<()> {
             warn(format!("{}: priority is already {}", item.id(), c.priority));
             continue;
         }
-        item.set_priority(value);
+        item.set_priority(value)
+            .map_err(|_| only_todos(item.id(), "a priority"))?;
         tx.save(n, "priority")?;
     }
     tx.finish(app)

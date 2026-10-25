@@ -62,7 +62,8 @@ pub fn reconcile(app: &App, before: &Item, after: &mut Item) {
         && let Some(c) = cb_after
         && after.meta.current_status() != Some(Status::from_checkbox(c))
     {
-        status::apply(app, after, Status::from_checkbox(c), app.clock.today);
+        // `after` is a todo: the change cannot fail.
+        status::apply(app, after, Status::from_checkbox(c), app.clock.today).ok();
         return;
     }
     if log_changed && after.checkbox_mismatch().is_some() {

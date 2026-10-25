@@ -7,11 +7,12 @@ use clap::{CommandFactory, Parser};
 
 use crate::app::App;
 use crate::commands::lifecycle::{self, Lifecycle};
-use crate::commands::meta::{self, DateField};
+use crate::commands::meta;
 use crate::commands::{check, completion, create, edit, init, list, show, status, tags};
 use crate::config::store_path;
 use crate::error::{Error, Result, usage};
 use crate::ids;
+use crate::item::DateField;
 use crate::item::{Kind, Status};
 use crate::store::Store;
 use args::{Cli, Command, GlobalArgs, IdsCmd, TOP_HELP, TagAction};

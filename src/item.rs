@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, FixedOffset, NaiveDate};
 
-use crate::dates::{format_iso, parse_iso, parse_timestamp};
+use crate::dates::{Clock, format_iso, parse_date, parse_iso, parse_timestamp};
+use crate::error::{Result as DoenResult, usage};
 use crate::frontmatter::{Doc, Value};
 use crate::tags;
 
@@ -196,6 +197,48 @@ pub fn parse_priority_or_none(s: &str) -> Result<Option<u8>, String> {
             .ok_or_else(|| format!("invalid priority '{s}': use 1, 2, 3 or none")),
     }
 }
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum DateField {
+    Scheduled,
+    Due,
+    Date,
+}
+
+impl DateField {
+    pub fn key(self) -> &'static str {
+        match self {
+            DateField::Scheduled => "scheduled",
+            DateField::Due => "due",
+            DateField::Date => "date",
+        }
+    }
+
+    /// Only `date` is required; the todo-only fields can be cleared.
+    pub fn todo_only(self) -> bool {
+        self != DateField::Date
+    }
+
+    pub fn get(self, m: &Meta) -> Option<NaiveDate> {
+        match self {
+            DateField::Scheduled => m.scheduled,
+            DateField::Due => m.due,
+            DateField::Date => Some(m.date),
+        }
+    }
+
+    /// `none` clears a todo-only field.
+    pub fn parse(self, s: &str, clock: &Clock) -> DoenResult<Option<NaiveDate>> {
+        if self.todo_only() && s == "none" {
+            return Ok(None);
+        }
+        parse_date(s, clock).map(Some).map_err(usage)
+    }
+}
+
+/// A todo-only change to a note. The item is unchanged.
+#[derive(Debug)]
+pub struct NotATodo;
 
 pub const TODO_ONLY: [&str; 4] = ["scheduled", "due", "priority", "status"];
 
@@ -392,12 +435,48 @@ impl Item {
         self.refresh();
     }
 
-    pub fn set_date(&mut self, key: &str, d: Option<NaiveDate>) {
+    fn set_date_key(&mut self, key: &str, d: Option<NaiveDate>) {
         self.set_opt(key, d.map(format_iso));
     }
 
-    pub fn set_priority(&mut self, p: Option<u8>) {
+    fn require_todo(&self) -> Result<(), NotATodo> {
+        match self.kind() {
+            Kind::Todo => Ok(()),
+            Kind::Note => Err(NotATodo),
+        }
+    }
+
+    /// Sets a date. `date` cannot be cleared: `None` leaves it as it is.
+    pub fn set_date(&mut self, field: DateField, d: Option<NaiveDate>) -> Result<(), NotATodo> {
+        if field.todo_only() {
+            self.require_todo()?;
+        } else if d.is_none() {
+            return Ok(());
+        }
+        self.set_date_key(field.key(), d);
+        Ok(())
+    }
+
+    pub fn archive(&mut self, on: NaiveDate) {
+        self.set_date_key("archived", Some(on));
+    }
+
+    pub fn unarchive(&mut self) {
+        self.set_date_key("archived", None);
+    }
+
+    pub fn trash(&mut self, on: NaiveDate) {
+        self.set_date_key("trashed", Some(on));
+    }
+
+    pub fn restore(&mut self) {
+        self.set_date_key("trashed", None);
+    }
+
+    pub fn set_priority(&mut self, p: Option<u8>) -> Result<(), NotATodo> {
+        self.require_todo()?;
         self.set_opt("priority", p.map(|p| p.to_string()));
+        Ok(())
     }
 
     pub fn set_tags(&mut self, tags: &[String]) {
@@ -411,7 +490,8 @@ impl Item {
     }
 
     /// Appends an entry to the status log and rewrites the checkbox.
-    pub fn push_status(&mut self, date: NaiveDate, status: Status) {
+    pub fn push_status(&mut self, date: NaiveDate, status: Status) -> Result<(), NotATodo> {
+        self.require_todo()?;
         let mut entries = match self.doc.get("status") {
             Some(Value::Seq(e)) => e.clone(),
             _ => vec![],
@@ -423,6 +503,7 @@ impl Item {
         self.doc.set("status", Value::Seq(entries), false);
         self.refresh();
         self.sync_checkbox();
+        Ok(())
     }
 
     pub fn set_heading(&mut self, checkbox: Option<char>, title: &str) {
@@ -484,10 +565,56 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(it.meta.current_status(), Some(Status::Open));
-        it.push_status(parse_iso("2026-10-16").unwrap(), Status::Done);
+        it.push_status(parse_iso("2026-10-16").unwrap(), Status::Done)
+            .unwrap();
         assert_eq!(it.meta.current_status(), Some(Status::Done));
         assert!(it.render().ends_with(
             "tags: [\"admin\"]\nstatus:\n  - date: 2026-10-16\n    status: done\n---\n# [x] call bank\nstuff\n"
         ));
+    }
+
+    fn parse(kind: &str) -> Item {
+        let text = format!(
+            "---\nid: \"k3f9\"\nkind: {kind}\ncreated: 2026-10-16T21:58:03+11:00\ndate: 2026-10-16\n---\n# x\n"
+        );
+        Item::parse(Path::new("x.md"), Place::Root, &text)
+            .unwrap()
+            .unwrap()
+    }
+
+    #[test]
+    fn todo_only_changes_on_a_note() {
+        let mut it = parse("note");
+        let before = it.render();
+        let day = parse_iso("2026-10-17");
+        assert!(it.set_date(DateField::Due, day).is_err());
+        assert!(it.set_date(DateField::Scheduled, None).is_err());
+        assert!(it.set_priority(Some(2)).is_err());
+        assert!(it.push_status(day.unwrap(), Status::Done).is_err());
+        assert_eq!(it.render(), before);
+        assert!(it.set_date(DateField::Date, day).is_ok());
+        assert_eq!(it.meta.date, day.unwrap());
+        // `date` cannot be cleared.
+        assert!(it.set_date(DateField::Date, None).is_ok());
+        assert_eq!(it.meta.date, day.unwrap());
+    }
+
+    #[test]
+    fn lifecycle_round_trips() {
+        let mut it = parse("todo");
+        let before = it.render();
+        let day = parse_iso("2026-10-17").unwrap();
+        it.archive(day);
+        assert_eq!(it.meta.archived, Some(day));
+        assert_eq!(it.meta.expected_place(), Place::Archive);
+        it.unarchive();
+        assert_eq!(it.render(), before);
+        it.trash(day);
+        assert_eq!(it.meta.expected_place(), Place::Trash);
+        it.restore();
+        assert_eq!(it.render(), before);
+        it.set_date(DateField::Due, Some(day)).unwrap();
+        it.set_priority(Some(3)).unwrap();
+        assert_eq!((it.meta.due, it.meta.priority), (Some(day), Some(3)));
     }
 }

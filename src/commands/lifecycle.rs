@@ -22,13 +22,6 @@ impl Lifecycle {
         }
     }
 
-    fn field(self) -> &'static str {
-        match self {
-            Lifecycle::Archive | Lifecycle::Unarchive => "archived",
-            Lifecycle::Trash | Lifecycle::Restore => "trashed",
-        }
-    }
-
     /// Why the change does nothing to `item`, if it does nothing.
     fn noop(self, item: &Item) -> Option<&'static str> {
         match self {
@@ -55,14 +48,19 @@ pub fn run(app: &App, op: Lifecycle, c: IdsCmd) -> Result<()> {
     if op == Lifecycle::Trash {
         confirm(app, &tx, &idx, "Move", " to the trash")?;
     }
-    let set = matches!(op, Lifecycle::Archive | Lifecycle::Trash).then_some(app.clock.today);
+    let today = app.clock.today;
     for n in idx {
         let item = &mut tx.store.items[n];
         if let Some(why) = op.noop(item) {
             warn(format!("{} is {why}", item.id()));
             continue;
         }
-        item.set_date(op.field(), set);
+        match op {
+            Lifecycle::Archive => item.archive(today),
+            Lifecycle::Unarchive => item.unarchive(),
+            Lifecycle::Trash => item.trash(today),
+            Lifecycle::Restore => item.restore(),
+        }
         tx.save(n, op.verb())?;
     }
     tx.finish(app)

@@ -20,13 +20,12 @@ use ratatui::widgets::ListState;
 
 use crate::app::App;
 use crate::cli::args::CreateCmd;
-use crate::commands::meta::{self, DateField};
-use crate::commands::{edit, status};
+use crate::commands::{edit, meta, only_todos, status};
 use crate::dates::format_iso;
 use crate::error::{Error, Result, general, usage};
 use crate::filter::select;
 use crate::ids;
-use crate::item::{Item, Kind, Place, Status};
+use crate::item::{DateField, Item, Kind, Place, Status};
 use crate::store::{Change, Store};
 use crate::tags;
 use crate::term;
@@ -453,7 +452,10 @@ impl Ui {
                 ConfirmAction::Trash(id),
             ),
             Action::Restore if trashed => {
-                let r = self.mutate(&id, "restore", |i| i.set_date("trashed", None));
+                let r = self.mutate(&id, "restore", |i| {
+                    i.restore();
+                    Ok(())
+                });
                 self.after(r, &id);
             }
             Action::Restore => self.error(usage("the item is not in the trash")),
@@ -469,11 +471,17 @@ impl Ui {
             Action::ToggleDone => self.toggle_status(&id, Status::Done),
             Action::ToggleDrop => self.toggle_status(&id, Status::Drop),
             Action::Archive => {
-                let (verb, set) = match self.selected()?.meta.archived {
-                    Some(_) => ("unarchive", None),
-                    None => ("archive", Some(self.app.clock.today)),
-                };
-                let r = self.mutate(&id, verb, |i| i.set_date("archived", set));
+                let today = self.app.clock.today;
+                let archived = self.selected()?.meta.archived.is_some();
+                let verb = if archived { "unarchive" } else { "archive" };
+                let r = self.mutate(&id, verb, |i| {
+                    if archived {
+                        i.unarchive();
+                    } else {
+                        i.archive(today);
+                    }
+                    Ok(())
+                });
                 self.after(r, &id);
             }
             Action::PriorityUp => self.bump_priority(&id, 1),
@@ -591,7 +599,10 @@ impl Ui {
         let today = self.app.clock.today;
         match action {
             ConfirmAction::Trash(id) => {
-                let r = self.mutate(&id, "rm", |i| i.set_date("trashed", Some(today)));
+                let r = self.mutate(&id, "rm", |i| {
+                    i.trash(today);
+                    Ok(())
+                });
                 self.after(r, &id);
             }
             ConfirmAction::Delete(id) => {
@@ -623,20 +634,29 @@ impl Ui {
                 (id, Err(usage("the title cannot be empty")))
             }
             InputAction::Title(id) => {
-                let r = self.mutate(&id, "title", |i| meta::retitle(i, text));
+                let r = self.mutate(&id, "title", |i| {
+                    meta::retitle(i, text);
+                    Ok(())
+                });
                 (id, r)
             }
             InputAction::Date(field, id) => {
                 let text = if text.is_empty() { "none" } else { text };
-                let r = field
-                    .parse(text, &self.app.clock)
-                    .and_then(|d| self.mutate(&id, field.key(), |i| i.set_date(field.key(), d)));
+                let r = field.parse(text, &self.app.clock).and_then(|d| {
+                    self.mutate(&id, field.key(), |i| {
+                        let what = format!("a {} date", field.key());
+                        i.set_date(field, d).map_err(|_| only_todos(i.id(), &what))
+                    })
+                });
                 (id, r)
             }
             InputAction::Tags(id) => {
-                let r = tags::parse_list(text)
-                    .map_err(usage)
-                    .and_then(|t| self.mutate(&id, "tag", |i| i.set_tags(&t)));
+                let r = tags::parse_list(text).map_err(usage).and_then(|t| {
+                    self.mutate(&id, "tag", |i| {
+                        i.set_tags(&t);
+                        Ok(())
+                    })
+                });
                 (id, r)
             }
         };
@@ -651,10 +671,15 @@ impl Ui {
     }
 
     /// Changes one item in a transaction and returns the output line of the change.
-    fn mutate(&self, id: &str, verb: &str, f: impl FnOnce(&mut Item)) -> Result<String> {
+    fn mutate(
+        &self,
+        id: &str,
+        verb: &str,
+        f: impl FnOnce(&mut Item) -> Result<()>,
+    ) -> Result<String> {
         let mut tx = self.app.begin()?;
         let n = ids::resolve(&mut tx.store, id, true)?;
-        f(&mut tx.store.items[n]);
+        f(&mut tx.store.items[n])?;
         tx.save(n, verb)?;
         let line = tx
             .changes
@@ -696,6 +721,7 @@ impl Ui {
                 let app = &self.app;
                 self.mutate(id, target.verb(), |i| {
                     status::apply(app, i, target, app.clock.today)
+                        .map_err(|_| only_todos(i.id(), "a status"))
                 })
             }
             _ => Err(usage("only todos have a status")),
@@ -708,7 +734,8 @@ impl Ui {
             Some(i) if i.kind() == Kind::Note => Err(usage("only todos have a priority")),
             _ => self.mutate(id, "priority", |i| {
                 let p = (i.meta.priority.unwrap_or(0) as i8 + by).clamp(0, 3) as u8;
-                i.set_priority((p > 0).then_some(p));
+                i.set_priority((p > 0).then_some(p))
+                    .map_err(|_| only_todos(i.id(), "a priority"))
             }),
         };
         self.after(r, id);
@@ -844,6 +871,22 @@ mod tests {
         press(&mut ui, "--");
         assert_eq!(item(&ui, &ids[0]).meta.priority, None);
         assert!(!item(&ui, &ids[0]).doc.render().contains("priority"));
+    }
+
+    #[test]
+    fn stale_kind() {
+        let (_d, mut ui, ids) = setup(&["a"]);
+        // The todo becomes a note on disk while the ui shows it as a todo.
+        let path = item(&ui, &ids[0]).path;
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, text.replace("kind: todo", "kind: note")).unwrap();
+        press(&mut ui, " ");
+        assert!(
+            ui.message
+                .as_ref()
+                .is_some_and(|(m, error)| *error && m.contains("note"))
+        );
+        assert!(item(&ui, &ids[0]).meta.status.is_empty());
     }
 
     #[test]

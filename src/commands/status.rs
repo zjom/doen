@@ -2,10 +2,10 @@ use chrono::NaiveDate;
 
 use crate::app::App;
 use crate::cli::args::StatusCmd;
-use crate::commands::{require_todos, resolve_ids};
+use crate::commands::{only_todos, require_todos, resolve_ids};
 use crate::dates::parse_date;
 use crate::error::{Result, usage, warn};
-use crate::item::{Item, Status};
+use crate::item::{Item, NotATodo, Status};
 
 pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
     let on = match &c.on {
@@ -36,20 +36,25 @@ pub fn run(app: &App, status: Status, c: StatusCmd) -> Result<()> {
             warn(format!("{} is already {}", item.id(), status.as_str()));
             continue;
         }
-        apply(app, &mut tx.store.items[n], status, on);
+        apply(app, &mut tx.store.items[n], status, on)
+            .map_err(|_| only_todos(&tx.store.items[n].meta.id, "a status"))?;
         tx.save(n, status.verb())?;
     }
     tx.finish(app)
 }
 
 /// Adds a status entry and archives or unarchives the todo.
-pub fn apply(app: &App, item: &mut Item, status: Status, on: NaiveDate) {
-    item.push_status(on, status);
+pub fn apply(
+    app: &App,
+    item: &mut Item,
+    status: Status,
+    on: NaiveDate,
+) -> std::result::Result<(), NotATodo> {
+    item.push_status(on, status)?;
     match status {
-        Status::Open => item.set_date("archived", None),
-        _ if app.cfg.archive_closed && item.meta.archived.is_none() => {
-            item.set_date("archived", Some(on))
-        }
+        Status::Open => item.unarchive(),
+        _ if app.cfg.archive_closed && item.meta.archived.is_none() => item.archive(on),
         _ => {}
     }
+    Ok(())
 }
