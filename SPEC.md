@@ -309,7 +309,7 @@ If the new value of a field is the same as the current value, doen does not repo
 
 `doen ui` opens a full-screen interface in the style of lazygit. The command requires a terminal.
 
-- The left panel lists the items. By default, it lists the open todos in the store root. A command (see below) replaces this list with other items. The right panel shows the selected item: the title, the metadata summary of `doen show`, the status history, the path and the body. If the terminal is less than 90 columns wide, doen does not show the right panel.
+- The left panel lists the items. By default, it lists the open todos in the store root. A command (see below) replaces this list with other items. The right panel shows the selected item: the title, the metadata summary of `doen show`, the status history, the path and the body. If the terminal is less than 90 columns wide, the preview is below the list, and if it is also less than 16 rows high, doen does not show the preview. `toggle_preview` hides and shows the preview; focusing the preview shows it.
 - `/` filters the list by a case-insensitive substring of the title and the body.
 - `:` runs a doen command, with the same words, options and prefixes as on the command line. Quotes and backslashes work as in a shell. If the IDs are missing, the command acts on the selected item (`:due fri`, `:tag add work`, `:done --on yesterday`).
   - The list commands (`ls`, `today`, `grep`, `trash`, `show`) replace the item list with their result, as with the default command: `:--date yesterday` lists like `doen ls --date yesterday`. `--sort`, `-r` and `-n` apply; the output formats do not. The title of the list is the command. `back` returns to the open todos.
@@ -703,6 +703,7 @@ When two actions share a key, the global actions win over the actions of the foc
 | `focus_items` | `1` | Focus the items. |
 | `focus_preview` | `2` | Focus the preview. |
 | `next_panel` | `tab` `backtab` | Switch items ↔ preview. |
+| `toggle_preview` | `p` | Show or hide the preview. |
 | `focus_left` | `h` `left` | Focus the items. |
 | `focus_right` | `l` `right` | Focus the preview. |
 | `back` | `esc` | Leave the preview, clear the search, leave a list, cancel a prompt. |

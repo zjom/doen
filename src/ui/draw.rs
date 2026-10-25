@@ -13,14 +13,20 @@ use crate::dates::display;
 use crate::item::{Item, Kind, Status};
 use crate::output::{is_overdue, summary};
 
-/// Below this width, the preview is not shown.
+/// Below this width, the preview is below the items.
 const PREVIEW_MIN_WIDTH: u16 = 90;
+/// Below this height, the preview is not shown below the items.
+const PREVIEW_MIN_HEIGHT: u16 = 16;
 
 pub fn draw(f: &mut Frame, ui: &mut Ui) {
     let [bar, main] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(f.area());
-    let [items, preview] = if main.width >= PREVIEW_MIN_WIDTH {
+    let [items, preview] = if !ui.show_preview {
+        [main, Rect::default()]
+    } else if main.width >= PREVIEW_MIN_WIDTH {
         Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(main)
+    } else if main.height >= PREVIEW_MIN_HEIGHT {
+        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(main)
     } else {
         [main, Rect::default()]
     };

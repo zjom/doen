@@ -1,5 +1,5 @@
 //! `doen ui`: an interactive mode in the style of lazygit. The item list is on the left and the
-//! preview of the selected item is on the right.
+//! preview of the selected item is on the right, or below in a narrow terminal.
 
 mod command;
 mod draw;
@@ -101,6 +101,7 @@ pub struct Ui {
     /// The list of a list command, in place of the open todos.
     pub listing: Option<command::Listing>,
     pub preview_scroll: u16,
+    pub show_preview: bool,
     pub popup: Option<Popup>,
     /// A message for the status bar, and whether it is an error.
     pub message: Option<(String, bool)>,
@@ -128,6 +129,7 @@ pub fn run(app: App) -> Result<()> {
         searching: false,
         listing: None,
         preview_scroll: 0,
+        show_preview: true,
         popup: None,
         message: None,
         redraw: false,
@@ -294,9 +296,14 @@ impl Ui {
             self.quit = true;
         } else if is(Action::Help) {
             self.popup = Some(Popup::Help { scroll: 0 });
+        } else if is(Action::TogglePreview) {
+            self.show_preview = !self.show_preview;
+            self.focus = Focus::Items;
         } else if is(Action::FocusPreview) || is(Action::FocusRight) {
+            self.show_preview = true;
             self.focus = Focus::Preview;
         } else if is(Action::NextPanel) {
+            self.show_preview = true;
             self.focus = match self.focus {
                 Focus::Items => Focus::Preview,
                 Focus::Preview => Focus::Items,
