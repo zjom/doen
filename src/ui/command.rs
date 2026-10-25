@@ -4,6 +4,7 @@
 //! the ui: it lists closed todos, as `ls --closed`.
 
 use std::ffi::OsString;
+use std::path::Path;
 use std::process::Stdio;
 
 use clap::error::ErrorKind;
@@ -225,6 +226,26 @@ fn summarize(lines: &[String]) -> String {
     }
 }
 
+/// The arguments of doen for a command of the ui: the store of the ui and no colors unless
+/// `color_given`. `-y` only if the ui has `confirmed` the command, so that doen does not skip a
+/// question the ui did not ask.
+fn subprocess_args(
+    root: &Path,
+    color_given: bool,
+    confirmed: bool,
+    argv: Vec<OsString>,
+) -> Vec<OsString> {
+    let mut full: Vec<OsString> = vec!["--dir".into(), root.into()];
+    if !color_given {
+        full.extend(["--color".into(), "never".into()]);
+    }
+    if confirmed {
+        full.push("-y".into());
+    }
+    full.extend(argv);
+    full
+}
+
 impl Ui {
     /// Runs a command line. Returns the ID of an item to open in the editor.
     pub(super) fn command(&mut self, line: &str) -> Option<String> {
@@ -248,16 +269,8 @@ impl Ui {
         if g.dir.is_some() {
             return Err(usage("--dir is not available in the ui"));
         }
-        // The globals for doen itself: the store of the ui, no colors and no prompts, since
-        // the ui asks first.
-        let mut full: Vec<OsString> = vec!["--dir".into(), self.app.root.clone().into()];
-        if g.color.is_none() {
-            full.extend(["--color".into(), "never".into()]);
-        }
-        if !g.yes {
-            full.push("-y".into());
-        }
-        full.extend(argv);
+        let (root, color) = (self.app.root.clone(), g.color.is_some());
+        let full = |confirmed| subprocess_args(&root, color, confirmed, argv.clone());
         let yes = g.yes;
         let clock = &self.app.clock;
         match cli.command {
@@ -270,7 +283,7 @@ impl Ui {
                 self.show_listing(Listing::new(ListKind::Query(q), &c.output));
             }
             Command::Trash(c) if c.empty && !yes => {
-                self.confirm(EMPTY_TRASH.into(), ConfirmAction::Command(full))
+                self.confirm(EMPTY_TRASH.into(), ConfirmAction::Command(full(true)))
             }
             Command::Trash(c) if !c.empty => {
                 let q = list::trash_query(&c, clock)?;
@@ -306,7 +319,7 @@ impl Ui {
                 } else {
                     format!("Move {titles} to the trash?")
                 };
-                self.confirm(question, ConfirmAction::Command(full));
+                self.confirm(question, ConfirmAction::Command(full(true)));
             }
             Command::Interactive
             | Command::Init
@@ -315,7 +328,7 @@ impl Ui {
             | Command::Complete(_) => {
                 return Err(usage("the command is not available in the ui"));
             }
-            _ => self.run_doen(full),
+            _ => self.run_doen(full(false)),
         }
         Ok(None)
     }
@@ -420,6 +433,22 @@ mod tests {
         assert_eq!(s("n ''"), ["n", ""]);
         assert!(s("  ").is_empty());
         assert!(split("n 'open").is_err());
+    }
+
+    #[test]
+    fn subprocess_yes() {
+        let args = |confirmed| {
+            let argv = vec![OsString::from("check")];
+            let a = subprocess_args(Path::new("/s"), false, confirmed, argv);
+            a.into_iter()
+                .map(|a| a.into_string().unwrap())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert_eq!(args(false), "--dir /s --color never check");
+        assert_eq!(args(true), "--dir /s --color never -y check");
+        let a = subprocess_args(Path::new("/s"), true, false, vec!["ls".into()]);
+        assert_eq!(a, ["--dir", "/s", "ls"]);
     }
 
     #[test]
