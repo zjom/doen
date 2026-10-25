@@ -21,8 +21,21 @@ pub fn print(shell: Shell) {
     );
 }
 
-const DATES: &str =
+pub const DATES: &str =
     "today yesterday tomorrow mon tue wed thu fri sat sun eow eom eoy +1d +2d +1w +1m none";
+
+/// The names of the templates.
+pub fn templates(app: &App) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    for dir in template::dirs(app) {
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            if let Some(n) = e.file_name().to_str().and_then(|n| n.strip_suffix(".md")) {
+                names.insert(n.to_string());
+            }
+        }
+    }
+    names
+}
 
 pub fn data(app: &App, what: &str) -> Result<()> {
     match what {
@@ -44,15 +57,7 @@ pub fn data(app: &App, what: &str) -> Result<()> {
             }
         }
         "templates" => {
-            let mut names = BTreeSet::new();
-            for dir in template::dirs(app) {
-                for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-                    if let Some(n) = e.file_name().to_str().and_then(|n| n.strip_suffix(".md")) {
-                        names.insert(n.to_string());
-                    }
-                }
-            }
-            for n in names {
+            for n in templates(app) {
                 println!("{n}");
             }
         }

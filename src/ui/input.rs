@@ -22,6 +22,16 @@ impl Input {
         &self.text
     }
 
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// Replaces the text from `start` to the cursor, and puts the cursor after the new text.
+    pub fn replace(&mut self, start: usize, s: &str) {
+        self.text.replace_range(start..self.cursor, s);
+        self.cursor = start + s.len();
+    }
+
     /// The display width of the text before the cursor.
     pub fn cursor_x(&self) -> u16 {
         self.text[..self.cursor].width() as u16

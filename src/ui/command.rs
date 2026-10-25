@@ -83,7 +83,7 @@ impl Listing {
 }
 
 /// Splits a command line into words as a shell does, with quotes and backslashes.
-fn split(line: &str) -> std::result::Result<Vec<String>, &'static str> {
+pub(super) fn split(line: &str) -> std::result::Result<Vec<String>, &'static str> {
     let mut words = vec![];
     let mut word: Option<String> = None;
     let mut chars = line.chars();

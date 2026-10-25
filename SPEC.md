@@ -319,6 +319,7 @@ If the new value of a field is the same as the current value, doen does not repo
   - `edit` opens the editor and `help` shows the keybindings.
   - The other commands run doen on the same store, and the status bar shows their output. `rm` and `trash --empty` ask for confirmation first, unless you give `-y`.
   - `ui`, `init`, `tags`, `completion` and `--dir` are not available.
+  - A menu above the command line shows the completions of the word that you type: commands, options, option values, IDs (with the titles; a word also matches the titles), tags and dates. `tab` puts the next completion in the line and `shift-tab` the previous one. If only one completion matches, `tab` accepts it and adds a space.
 - Every key is configurable with the `ui_keys` config key (see Config). The defaults are lazygit-like: `j`/`k` move, `space` toggles done, `e` opens the editor (as `doen edit`), `d` moves to the trash, `?` lists the keys with their action names. `ctrl-c` always quits and cannot be changed.
 - Text fields (prompts and the search) take every plain character as text: while you type, only the `submit` and `back` keys and the movement keys with `ctrl-`, `alt-` or a key name run an action. The editing keys of text fields (`ctrl-a`, `ctrl-e`, `ctrl-u`, `ctrl-k`, `ctrl-w`, arrows, `home`, `end`, `backspace`, `delete`) are fixed.
 - In date prompts, an empty value or `none` clears the date.

@@ -2,6 +2,7 @@
 //! preview of the selected item is on the right, or below in a narrow terminal.
 
 mod command;
+mod complete;
 mod draw;
 mod input;
 pub mod keys;
@@ -28,7 +29,9 @@ use crate::ids;
 use crate::item::{Item, Kind, Place, Status};
 use crate::store::{self, Change, Store};
 use crate::tags;
+
 use crate::term;
+use complete::Menu;
 use input::Input;
 use keys::Action;
 
@@ -76,6 +79,8 @@ pub enum Popup {
         title: String,
         input: Input,
         action: InputAction,
+        /// The completions of the command line.
+        menu: Option<Menu>,
     },
     Confirm {
         message: String,
@@ -509,6 +514,7 @@ impl Ui {
             title: title.into(),
             input: Input::new(value),
             action,
+            menu: None,
         });
     }
 
@@ -559,17 +565,52 @@ impl Ui {
             Popup::Input {
                 title,
                 mut input,
+                action: InputAction::Command,
+                menu,
+            } => {
+                let menu = self.command_key(&mut input, menu, key);
+                self.popup = Some(Popup::Input {
+                    title,
+                    input,
+                    action: InputAction::Command,
+                    menu,
+                });
+            }
+            Popup::Input {
+                title,
+                mut input,
                 action,
+                menu,
             } => {
                 input.handle(key);
                 self.popup = Some(Popup::Input {
                     title,
                     input,
                     action,
+                    menu,
                 });
             }
         }
         None
+    }
+
+    /// Handles an editing key or a completion key on the command line. Tab puts the next
+    /// candidate in the line and shift-tab the previous one; typing a word shows its candidates.
+    fn command_key(
+        &mut self,
+        input: &mut Input,
+        menu: Option<Menu>,
+        key: KeyEvent,
+    ) -> Option<Menu> {
+        let back = key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT);
+        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
+            menu.or_else(|| Menu::new(input, &self.store, &self.app))
+                .and_then(|m| m.cycle(input, back))
+        } else if input.handle(key) {
+            Menu::new(input, &self.store, &self.app).filter(|m| m.start < input.cursor())
+        } else {
+            menu
+        }
     }
 
     fn run_confirm(&mut self, action: ConfirmAction) {

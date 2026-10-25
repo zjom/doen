@@ -4,9 +4,12 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
+};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use super::complete::Menu;
 use super::keys::{ACTIONS, Action, Section};
 use super::{Focus, InputAction, Popup, Row, Ui};
 use crate::dates::display;
@@ -284,6 +287,7 @@ fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
             title,
             input,
             action,
+            menu,
         }) => {
             let prompt = match action {
                 InputAction::Command => ":".to_string(),
@@ -292,6 +296,11 @@ fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
             let x = (prompt.width() as u16).saturating_add(input.cursor_x());
             // Scrolls a long line so that the cursor stays in view.
             let offset = (x + 1).saturating_sub(area.width);
+            if let Some(menu) = menu {
+                let word_x = prompt.width() + input.text()[..menu.start].width();
+                let word_x = (word_x as u16).saturating_sub(offset);
+                draw_menu(f, menu, area, word_x);
+            }
             let line = Line::from(vec![
                 Span::styled(prompt, Style::new().fg(Color::Yellow)),
                 input.text().into(),
@@ -330,6 +339,65 @@ fn draw_bar(f: &mut Frame, ui: &Ui, area: Rect) {
             }
         }
     }
+}
+
+/// The most candidates the menu shows at once.
+const MENU_HEIGHT: usize = 10;
+
+/// The completion menu, above the bar, from the column of the word.
+fn draw_menu(f: &mut Frame, menu: &Menu, bar: Rect, word_x: u16) {
+    let value_w = menu
+        .candidates
+        .iter()
+        .map(|c| c.value.width())
+        .max()
+        .unwrap_or(0);
+    let help_w = menu
+        .candidates
+        .iter()
+        .map(|c| c.help.width())
+        .max()
+        .unwrap_or(0);
+    let gap = if help_w > 0 { 2 } else { 0 };
+    let width = ((value_w + gap + help_w.min(50) + 4) as u16).min(bar.width);
+    let height = (menu.candidates.len().min(MENU_HEIGHT) as u16 + 2).min(bar.y);
+    // The text of a candidate starts at the column of the word, inside the border.
+    let x = word_x.saturating_sub(2).min(bar.width - width);
+    let area = Rect {
+        x: bar.x + x,
+        y: bar.y - height,
+        width,
+        height,
+    };
+    let inner = (width as usize).saturating_sub(4);
+    let lines: Vec<ListItem> = menu
+        .candidates
+        .iter()
+        .map(|c| {
+            let help = truncate(&c.help, inner.saturating_sub(value_w + gap));
+            Line::from(vec![
+                format!(" {:<value_w$}", c.value).into(),
+                format!("{:gap$}{help} ", "").dim(),
+            ])
+            .into()
+        })
+        .collect();
+    let mut block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().dim());
+    if menu.candidates.len() > MENU_HEIGHT {
+        let n = menu.selected.map_or(0, |i| i + 1);
+        block = block.title_bottom(format!(" {n}/{} ", menu.candidates.len()));
+    }
+    let mut state = ListState::default().with_selected(menu.selected);
+    f.render_widget(Clear, area);
+    f.render_stateful_widget(
+        List::new(lines)
+            .block(block)
+            .highlight_style(highlight(true)),
+        area,
+        &mut state,
+    );
 }
 
 fn help_text(ui: &Ui) -> Text<'static> {
@@ -377,6 +445,10 @@ fn help_text(ui: &Ui) -> Text<'static> {
         (
             ":due fri",
             "without IDs, a command acts on the selected item",
+        ),
+        (
+            ":done <tab>",
+            "complete commands, options, IDs, tags and dates; shift-tab goes back",
         ),
     ] {
         lines.push(Line::from(vec![
