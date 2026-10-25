@@ -768,6 +768,7 @@ If no global config file exists, `doen init` creates one. In this file, every ke
   - Files in the wrong directory for their `archived` field and `trashed` field
   - Heading checkboxes that disagree with the status log
   - Missing titles
+  - Temporary files (`.doen-tmp-*`) that doen left behind, for example after a crash. doen lists each file with its title and asks whether to delete the files. An editor that is open can still use a temporary file. `-y` deletes the files without a question. If no terminal is available, doen does not delete the files.
 - `doen check --fix` moves the files that are in the wrong directory, rewrites checkboxes from the status log and gives new IDs to duplicates. The command reports invalid frontmatter and missing titles. The command does not fix these two problems.
 
 ### Git

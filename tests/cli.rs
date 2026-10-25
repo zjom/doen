@@ -736,6 +736,26 @@ fn edit_log_wins_and_readonly_fields() {
 }
 
 #[test]
+fn check_temp_files() {
+    let e = Env::new();
+    let a = e.id(&["t", "leftover"]);
+    let tmp = e.store().join(".doen-tmp-abc.md");
+    fs::write(&tmp, e.read(&a)).unwrap();
+    // Without a terminal, check lists the file but does not delete it.
+    let o = e.run(&["check"]);
+    assert_eq!(o.code, 1);
+    assert!(
+        o.stdout.contains("temporary file: leftover"),
+        "{}",
+        o.stdout
+    );
+    assert!(tmp.exists());
+    let o = e.run(&["-y", "check"]);
+    assert_eq!(o.code, 0, "{}{}", o.stdout, o.stderr);
+    assert!(!tmp.exists());
+}
+
+#[test]
 fn check_and_fix() {
     let e = Env::new();
     let a = e.id(&["t", "a"]);

@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::app::App;
 use crate::cli::args::CheckCmd;
 use crate::error::{Error, Result};
 use crate::ids;
-use crate::item::Place;
+use crate::item::{Item, Place};
 use crate::store::{Change, Changes, Store, filename, filename_id};
+use crate::term;
 
 pub fn run(app: &App, c: CheckCmd) -> Result<()> {
     let unfixed = if c.fix {
@@ -17,6 +18,7 @@ pub fn run(app: &App, c: CheckCmd) -> Result<()> {
     } else {
         report(&mut Store::open(&app.root, &Place::ALL, false)?, None)?
     };
+    let unfixed = unfixed + temp_files(app)?;
     match unfixed {
         0 => Ok(()),
         _ => Err(Error::Silent(1)),
@@ -120,4 +122,55 @@ fn report(store: &mut Store, mut changes: Option<&mut Changes>) -> Result<usize>
         }
     }
     Ok(open)
+}
+
+/// Lists the temporary files that doen left behind, for example after a crash or while an editor
+/// is open, and offers to delete them. Returns the number of files that are not deleted.
+fn temp_files(app: &App) -> Result<usize> {
+    let mut found: Vec<(PathBuf, String)> = vec![];
+    for place in Place::ALL {
+        let Ok(entries) = std::fs::read_dir(app.root.join(place.dir())) else {
+            continue;
+        };
+        let mut paths: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name().to_string_lossy().starts_with(".doen-tmp-")
+                    && e.file_type().is_ok_and(|t| t.is_file())
+            })
+            .map(|e| e.path())
+            .collect();
+        paths.sort();
+        for path in paths {
+            let title = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| Item::parse(&path, place, &text).ok().flatten())
+                .map_or("(untitled)".to_string(), |i| i.title().to_string());
+            found.push((path, title));
+        }
+    }
+    if found.is_empty() {
+        return Ok(0);
+    }
+    for (path, title) in &found {
+        println!("{}: temporary file: {title}", path.display());
+    }
+    if !app.yes {
+        let question = format!(
+            "Delete {} temporary file{}? An open editor may still use it. [y/N] ",
+            found.len(),
+            if found.len() == 1 { "" } else { "s" }
+        );
+        let Ok(answer) = term::ask(&question) else {
+            return Ok(found.len());
+        };
+        if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+            return Ok(found.len());
+        }
+    }
+    for (path, _) in &found {
+        std::fs::remove_file(path)?;
+        println!("{}: deleted", path.display());
+    }
+    Ok(0)
 }
